@@ -1,0 +1,8 @@
+aiogram>=3.4.0
+langchain>=0.1.0
+langchain-community
+langchain-postgres
+psycopg2-binary
+asyncpg
+pgvector
+python-dotenv
