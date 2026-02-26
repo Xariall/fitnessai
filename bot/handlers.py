@@ -1,5 +1,7 @@
 """Роутер с обработчиками команд и сообщений."""
 
+import asyncio
+
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
@@ -24,12 +26,26 @@ async def cmd_start(message: Message) -> None:
 async def chat_with_llm(message: Message) -> None:
     """
     Ловит весь текст (кроме команд) и отправляет в Llama 3.1 через Ollama.
+    Показывает «печатает...» каждые 4 секунды, пока модель генерирует ответ.
     """
-    # Показываем статус "печатает..."
-    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    typing_active = True
 
-    # Отправляем текст в LangChain → Ollama
-    answer = get_llm_response(message.text)
+    async def keep_typing() -> None:
+        """Периодически отправляет typing-статус, пока LLM думает."""
+        while typing_active:
+            await message.bot.send_chat_action(
+                chat_id=message.chat.id, action="typing"
+            )
+            await asyncio.sleep(4)
 
-    # Возвращаем сгенерированный ответ
+    # Запускаем typing в фоне
+    typing_task = asyncio.create_task(keep_typing())
+
+    try:
+        # Асинхронный вызов LLM (не блокирует event loop)
+        answer = await get_llm_response(message.text)
+    finally:
+        typing_active = False
+        typing_task.cancel()
+
     await message.answer(answer)

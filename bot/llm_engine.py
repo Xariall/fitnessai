@@ -1,30 +1,44 @@
 """Модуль для работы с LLM через LangChain + Ollama."""
 
+import asyncio
 import os
 import logging
 
-from langchain_community.llms import Ollama
+from langchain_ollama import OllamaLLM
 
 logger = logging.getLogger(__name__)
 
+# Создаём экземпляр модели один раз (не на каждый запрос)
+_llm: OllamaLLM | None = None
 
-def get_llm_response(user_prompt: str) -> str:
+
+def _get_llm() -> OllamaLLM:
+    """Ленивая инициализация LLM-клиента (синглтон)."""
+    global _llm
+    if _llm is None:
+        ollama_base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        _llm = OllamaLLM(
+            base_url=ollama_base_url,
+            model="llama3.1",
+        )
+        logger.info(f"LLM инициализирован: {ollama_base_url}, model=llama3.1")
+    return _llm
+
+
+def _sync_invoke(prompt: str) -> str:
+    """Синхронный вызов LLM (для запуска в потоке)."""
+    llm = _get_llm()
+    return llm.invoke(prompt)
+
+
+async def get_llm_response(user_prompt: str) -> str:
     """
-    Отправляет запрос в локальную LLM и возвращает сгенерированный текст.
+    Асинхронно отправляет запрос в локальную LLM.
+    Вызов LLM идёт в отдельном потоке, чтобы не блокировать event loop.
     """
-    # Адрес Ollama берём из переменных окружения
-    # Внутри Docker-контейнера на Маке: http://host.docker.internal:11434
-    ollama_base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-
-    # Инициализация модели через LangChain
-    llm = Ollama(
-        base_url=ollama_base_url,
-        model="llama3.1",
-    )
-
     try:
         logger.info(f"Отправка запроса в LLM: {user_prompt[:50]}...")
-        response = llm.invoke(user_prompt)
+        response = await asyncio.to_thread(_sync_invoke, user_prompt)
         return response
     except Exception as e:
         logger.error(f"Ошибка при обращении к Ollama: {e}")
