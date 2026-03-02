@@ -8,8 +8,8 @@ import sys
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
 
-from bot.handlers import router
-from bot.database.db import Database
+from bot.handlers import onboarding_router, common_router
+from bot.database.db import db
 
 load_dotenv()
 
@@ -19,9 +19,6 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
-
-# Глобальный экземпляр БД
-db = Database()
 
 
 async def main() -> None:
@@ -37,17 +34,16 @@ async def main() -> None:
     bot = Bot(token=token)
     dp = Dispatcher()
 
-    # Подключаем роутеры
-    dp.include_router(router)
+    # Подключаем роутеры (onboarding ПЕРВЫМ — иначе catch-all F.text перехватит FSM)
+    dp.include_router(onboarding_router)
+    dp.include_router(common_router)
 
     logger.info("🚀 Бот FitnessAi запускается...")
 
     try:
-        # Удаляем вебхук (на случай если был) и запускаем polling
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
     finally:
-        # Graceful shutdown
         await db.close()
 
 

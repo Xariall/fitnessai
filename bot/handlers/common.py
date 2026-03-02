@@ -1,4 +1,4 @@
-"""Роутер с обработчиками команд и сообщений."""
+"""Общие хендлеры: /start и LLM-чат."""
 
 import asyncio
 
@@ -17,7 +17,7 @@ async def cmd_start(message: Message) -> None:
     await message.answer(
         "👋 Привет! Я — <b>FitnessAI</b>, твой персональный фитнес-помощник.\n\n"
         "Я помогу тебе с тренировками, питанием и ответами на вопросы о здоровом образе жизни.\n\n"
-        "Просто напиши мне, и мы начнём! 💪",
+        "Начни с настройки профиля — нажми /profile 💪",
         parse_mode="HTML",
     )
 
@@ -38,11 +38,9 @@ async def chat_with_llm(message: Message) -> None:
             )
             await asyncio.sleep(4)
 
-    # Запускаем typing в фоне
     typing_task = asyncio.create_task(keep_typing())
 
     try:
-        # Асинхронный вызов LLM (не блокирует event loop)
         answer = await get_llm_response(message.text)
     finally:
         typing_active = False

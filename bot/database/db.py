@@ -100,3 +100,7 @@ class Database:
         if self.pool:
             await self.pool.close()
             logger.info("🔒 Пул соединений с БД закрыт")
+
+
+# Глобальный синглтон для импорта из других модулей
+db = Database()
