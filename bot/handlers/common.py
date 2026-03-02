@@ -4,22 +4,37 @@ import asyncio
 
 from aiogram import Router, F
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from bot.llm_engine import get_llm_response
+from bot.database.db import db
+from bot.states import Onboarding
 
 router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message) -> None:
-    """Обработчик команды /start."""
-    await message.answer(
-        "👋 Привет! Я — <b>FitnessAI</b>, твой персональный фитнес-помощник.\n\n"
-        "Я помогу тебе с тренировками, питанием и ответами на вопросы о здоровом образе жизни.\n\n"
-        "Начни с настройки профиля — нажми /profile 💪",
-        parse_mode="HTML",
-    )
+async def cmd_start(message: Message, state: FSMContext) -> None:
+    """Обработчик команды /start. Автоматически запускает анкету, если профиль не найден."""
+    user = await db.get_user(message.from_user.id)
+
+    if user:
+        await message.answer(
+            f"👋 С возвращением, <b>{message.from_user.first_name}</b>!\n\n"
+            "Задай мне любой вопрос о тренировках или питании, "
+            "а для обновления профиля нажми /profile 💪",
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(
+            "👋 Привет! Я — <b>FitnessAI</b>, твой персональный фитнес-помощник.\n\n"
+            "Для начала давай настроим твой профиль!\n"
+            "Сколько тебе лет? (введи число)\n\n"
+            "💡 Ты можешь прервать анкету в любой момент командой /cancel",
+            parse_mode="HTML",
+        )
+        await state.set_state(Onboarding.waiting_for_age)
 
 
 @router.message(F.text)
