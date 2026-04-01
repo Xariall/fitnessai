@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from bot.states import Onboarding
 from bot.keyboards import get_gender_kb, get_activity_kb, get_goal_kb
 from bot.database.db import db
+from bot.services.calculator import calculate_nutrition
 
 logger = logging.getLogger(__name__)
 
@@ -176,20 +177,35 @@ async def process_goal(message: types.Message, state: FSMContext):
         f"weight={user_data['weight']}, goal={user_data['goal']}"
     )
 
-    # Обратный маппинг для красивого вывода
-    gender_display = {v: k for k, v in GENDER_MAP.items()}
-    activity_display = {v: k for k, v in ACTIVITY_MAP.items()}
+    # Расчёт TDEE и БЖУ
+    nutrition = calculate_nutrition(
+        weight=user_data["weight"],
+        height=user_data["height"],
+        age=user_data["age"],
+        gender=user_data["gender"],
+        activity_level=user_data["activity_level"],
+        goal=user_data["goal"],
+    )
+
+    # Красивый вывод цели
+    goal_display = {
+        "lose": "Похудение",
+        "maintain": "Поддержание",
+        "gain": "Набор массы",
+        "recomposition": "Рекомпозиция",
+    }
 
     await message.answer(
-        f"🎉 <b>Профиль успешно создан!</b>\n\n"
-        f"📊 Твои данные:\n"
-        f"• Возраст: {user_data['age']}\n"
-        f"• Рост: {user_data['height']} см\n"
-        f"• Вес: {user_data['weight']} кг\n"
-        f"• Пол: {gender_display.get(user_data['gender'], user_data['gender'])}\n"
-        f"• Активность: {activity_display.get(user_data['activity_level'], user_data['activity_level'])}\n"
-        f"• Цель: {message.text}\n\n"
-        f"Теперь я могу рассчитать твою норму калорий! 💪",
+        f"🎉 <b>Профиль успешно настроен!</b>\n\n"
+        f"📊 <b>Твои расчёты:</b>\n"
+        f"Суточная норма (поддержание): <b>{nutrition['tdee']} ккал</b>\n\n"
+        f"🎯 <b>Твоя цель: {goal_display.get(user_data['goal'], message.text)}</b>\n"
+        f"Рекомендуемая калорийность: <b>{nutrition['target_calories']} ккал</b>\n\n"
+        f"⚖️ <b>Рекомендуемые БЖУ на день:</b>\n"
+        f"🥩 Белки: {nutrition['protein']} г\n"
+        f"🥑 Жиры: {nutrition['fat']} г\n"
+        f"🍚 Углеводы: {nutrition['carbs']} г\n\n"
+        f"<i>💡 Теперь ты можешь задавать мне вопросы о тренировках и питании!</i>",
         parse_mode="HTML",
         reply_markup=types.ReplyKeyboardRemove(),
     )

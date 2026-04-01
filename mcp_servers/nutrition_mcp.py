@@ -1,0 +1,131 @@
+"""MCP-сервер: питание, дневник еды, калории, БЖУ."""
+
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from fastmcp import FastMCP
+from database import db
+
+mcp = FastMCP("nutrition", instructions="Сервер для работы с питанием, дневником еды и расчётом калорий.")
+
+
+def _calculate_nutrition(weight, height, age, gender, activity, goal) -> dict:
+    """Mifflin-St Jeor BMR → TDEE → target kcal → macros."""
+    if gender == "male":
+        bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5
+    else:
+        bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161
+
+    multipliers = {"sedentary": 1.2, "moderate": 1.375, "active": 1.55, "athlete": 1.725}
+    tdee = bmr * multipliers.get(activity, 1.2)
+
+    adjustments = {"lose": 0.85, "gain": 1.15, "maintain": 1.0, "recomposition": 1.0}
+    target = tdee * adjustments.get(goal, 1.0)
+
+    protein = weight * 2.0
+    fat = weight * 1.0
+    carbs = max((target - (protein * 4) - (fat * 9)) / 4, 50.0)
+
+    return {
+        "bmr": round(bmr),
+        "tdee": round(tdee),
+        "target_calories": round(target),
+        "protein_g": round(protein),
+        "fat_g": round(fat),
+        "carbs_g": round(carbs),
+    }
+
+
+@mcp.tool()
+async def search_food(query: str) -> str:
+    """Поиск продукта в базе по названию.
+    Возвращает калории и БЖУ на 100 г. Пример: search_food('курица')"""
+    results = await db.search_food(query)
+    if not results:
+        return f"Продукт '{query}' не найден в базе."
+    return json.dumps(results, ensure_ascii=False)
+
+
+@mcp.tool()
+async def log_meal(
+    user_id: str,
+    product_name: str,
+    weight_g: float,
+    calories: float,
+    protein: float,
+    fat: float,
+    carbs: float,
+) -> str:
+    """Записать приём пищи в дневник.
+    Калории и БЖУ указываются уже пересчитанные на фактический вес порции."""
+    await db.log_meal(user_id, product_name, weight_g, calories, protein, fat, carbs)
+    return f"Записано: {product_name} ({weight_g}г) — {round(calories)} ккал"
+
+
+@mcp.tool()
+async def log_meal_from_base(
+    user_id: str, product_name: str, weight_g: float
+) -> str:
+    """Записать приём пищи, автоматически рассчитав КБЖУ из базы продуктов.
+    Ищет продукт по названию, пересчитывает на вес порции."""
+    results = await db.search_food(product_name)
+    if not results:
+        return f"Продукт '{product_name}' не найден. Укажите КБЖУ вручную через log_meal."
+
+    product = results[0]
+    ratio = weight_g / 100.0
+    cal = round(product["calories"] * ratio, 1)
+    prot = round(product["protein"] * ratio, 1)
+    f_ = round(product["fat"] * ratio, 1)
+    carb = round(product["carbs"] * ratio, 1)
+
+    await db.log_meal(user_id, product["name"], weight_g, cal, prot, f_, carb)
+    return (
+        f"Записано: {product['name']} ({weight_g}г) — "
+        f"{cal} ккал | Б:{prot} Ж:{f_} У:{carb}"
+    )
+
+
+@mcp.tool()
+async def get_food_diary(user_id: str, date: str | None = None) -> str:
+    """Получить дневник питания за день.
+    date — опционально, формат 'YYYY-MM-DD'. Без даты — сегодня."""
+    entries = await db.get_food_diary(user_id, date)
+    if not entries:
+        return "Записей в дневнике за этот день нет."
+    return json.dumps(entries, ensure_ascii=False)
+
+
+@mcp.tool()
+async def get_daily_summary(user_id: str, date: str | None = None) -> str:
+    """Получить итого калорий и БЖУ за день.
+    date — опционально, формат 'YYYY-MM-DD'. Без даты — сегодня."""
+    summary = await db.get_daily_summary(user_id, date)
+    return json.dumps(summary, ensure_ascii=False)
+
+
+@mcp.tool()
+async def calculate_daily_norm(user_id: str) -> str:
+    """Рассчитать дневную норму калорий и БЖУ по профилю пользователя.
+    Использует формулу Миффлина-Сан Жеора."""
+    user = await db.get_user(user_id)
+    if not user:
+        return "Профиль пользователя не найден. Создайте профиль сначала."
+
+    required = ["weight", "height", "age", "gender", "activity", "goal"]
+    missing = [f for f in required if not user.get(f)]
+    if missing:
+        return f"В профиле не заполнены: {', '.join(missing)}. Обновите профиль."
+
+    result = _calculate_nutrition(
+        user["weight"], user["height"], user["age"],
+        user["gender"], user["activity"], user["goal"],
+    )
+    return json.dumps(result, ensure_ascii=False)
+
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")
