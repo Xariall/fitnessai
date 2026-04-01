@@ -2,6 +2,7 @@
 
 import base64
 import logging
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -22,6 +23,8 @@ load_dotenv()
 logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 logger = logging.getLogger("fitagent")
+
+_first_message: set[str] = set()
 
 
 @asynccontextmanager
@@ -52,7 +55,18 @@ def _extract_text(response: dict) -> str:
     for msg in reversed(messages):
         if hasattr(msg, "type") and msg.type == "ai" and msg.content:
             if not getattr(msg, "tool_calls", None):
-                return msg.content if isinstance(msg.content, str) else str(msg.content)
+                content = msg.content
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    parts = []
+                    for block in content:
+                        if isinstance(block, str):
+                            parts.append(block)
+                        elif isinstance(block, dict) and "text" in block:
+                            parts.append(block["text"])
+                    return "\n".join(parts) if parts else str(content)
+                return str(content)
     return "Не удалось получить ответ."
 
 
@@ -61,17 +75,25 @@ def _friendly_error(e: Exception) -> str:
     if "API_KEY_INVALID" in msg or "API key not valid" in msg:
         return "Ошибка: GEMINI_API_KEY невалидный. Проверьте ключ в .env файле."
     if "RESOURCE_EXHAUSTED" in msg or "429" in msg:
-        return "Квота Gemini API исчерпана. Подождите минуту и попробуйте снова, или создайте новый API ключ на https://aistudio.google.com/apikey"
+        return "Квота Gemini API исчерпана. Подождите минуту и попробуйте снова."
     return "Произошла ошибка. Попробуйте ещё раз."
 
 
 async def _run_agent(user_id: str, user_message: str) -> str:
     await ensure_user(user_id)
     graph = await get_graph()
-    system = SystemMessage(content=SYSTEM_PROMPT.format(user_id=user_id))
-    response = await graph.ainvoke({
-        "messages": [system, HumanMessage(content=user_message)],
-    })
+
+    new_messages = []
+    if user_id not in _first_message:
+        new_messages.append(
+            SystemMessage(content=SYSTEM_PROMPT.format(user_id=user_id), id="system")
+        )
+        _first_message.add(user_id)
+
+    new_messages.append(HumanMessage(content=user_message))
+
+    config = {"configurable": {"thread_id": user_id}}
+    response = await graph.ainvoke({"messages": new_messages}, config=config)
     return _extract_text(response)
 
 

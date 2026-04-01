@@ -9,10 +9,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph, MessagesState, START
 from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_core.messages import SystemMessage
+from langgraph.checkpoint.memory import MemorySaver
 
 from agent.tools import analyze_food_photo, calculate_bmi, generate_workout_plan
-from agent.prompts import SYSTEM_PROMPT
 
 logging.getLogger("google.genai").setLevel(logging.ERROR)
 
@@ -23,6 +22,7 @@ CUSTOM_TOOLS = [analyze_food_photo, calculate_bmi, generate_workout_plan]
 
 _graph = None
 _client = None
+_memory = MemorySaver()
 
 
 def _build_mcp_config() -> dict:
@@ -41,7 +41,7 @@ def _build_mcp_config() -> dict:
 
 
 async def get_graph():
-    """Get or create the singleton agent graph."""
+    """Get or create the singleton agent graph with memory."""
     global _graph, _client
     if _graph is not None:
         return _graph
@@ -69,7 +69,7 @@ async def get_graph():
     builder.add_edge(START, "agent")
     builder.add_conditional_edges("agent", tools_condition)
     builder.add_edge("tools", "agent")
-    _graph = builder.compile()
+    _graph = builder.compile(checkpointer=_memory)
 
     return _graph
 
