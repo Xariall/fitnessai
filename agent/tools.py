@@ -1,13 +1,20 @@
-"""Custom agent tools: Gemini Vision food analysis, BMI, workout plan generation."""
+"""Custom agent tools: Gemini Vision food analysis, BMI, workout plan generation, RAG knowledge search."""
 
 import base64
 import json
 import os
+from pathlib import Path
 
+import chromadb
 from langchain_core.tools import tool
 from google import genai
 
 _client: genai.Client | None = None
+_chroma_collection = None
+
+PROJECT_ROOT = Path(__file__).parent.parent
+CHROMA_DIR = PROJECT_ROOT / "chroma_db"
+COLLECTION_NAME = "fitness_knowledge"
 
 
 def _get_client() -> genai.Client:
@@ -15,6 +22,70 @@ def _get_client() -> genai.Client:
     if _client is None:
         _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     return _client
+
+
+def _get_collection():
+    global _chroma_collection
+    if _chroma_collection is None:
+        db = chromadb.PersistentClient(path=str(CHROMA_DIR))
+        _chroma_collection = db.get_collection(COLLECTION_NAME)
+    return _chroma_collection
+
+
+@tool
+async def search_knowledge(query: str) -> str:
+    """Поиск по экспертной базе знаний: биомеханика упражнений, противопоказания,
+    принципы программирования тренировок, профилактика травм, научные основы питания,
+    особенности тренировок для особых групп (пожилые, подростки, беременные, ожирение).
+
+    Используй этот инструмент когда нужно:
+    - Проверить противопоказания перед составлением программы
+    - Узнать правильную технику или биомеханику упражнения
+    - Получить научно обоснованные рекомендации по питанию
+    - Учесть особенности для конкретной группы населения
+    - Получить информацию о профилактике травм
+
+    Args:
+        query: Поисковый запрос на русском языке
+    """
+    try:
+        collection = _get_collection()
+    except Exception:
+        return json.dumps(
+            {"error": "База знаний не проиндексирована. Запустите: python -m knowledge.ingest"},
+            ensure_ascii=False,
+        )
+
+    client = _get_client()
+    embed_result = client.models.embed_content(
+        model="models/gemini-embedding-001",
+        contents=query,
+    )
+    query_embedding = embed_result.embeddings[0].values
+
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=5,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    if not results["documents"] or not results["documents"][0]:
+        return json.dumps({"result": "Ничего не найдено по запросу"}, ensure_ascii=False)
+
+    chunks = []
+    for doc, meta, dist in zip(
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0],
+    ):
+        chunks.append({
+            "text": doc,
+            "source": meta.get("source", ""),
+            "topic": meta.get("topic", ""),
+            "relevance": round(1 - dist, 3),
+        })
+
+    return json.dumps({"query": query, "results": chunks}, ensure_ascii=False)
 
 
 @tool
