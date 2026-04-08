@@ -35,7 +35,7 @@ body {
     margin: 0 auto;
 }
 
-/* Header */
+/* ── Header ─────────────────────────────────────────────── */
 .header {
     display: flex;
     align-items: center;
@@ -43,12 +43,14 @@ body {
     padding: 16px 20px;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
+    gap: 12px;
 }
 
 .header-left {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-shrink: 0;
 }
 
 .logo {
@@ -61,6 +63,70 @@ body {
     background: linear-gradient(135deg, var(--accent-light), var(--green));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
+}
+
+.header-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    transition: opacity 0.4s, transform 0.4s;
+}
+
+.header-center.hidden {
+    opacity: 0;
+    transform: translateY(-4px);
+    pointer-events: none;
+    position: absolute;
+    left: -9999px;
+}
+
+.header-right {
+    flex-shrink: 0;
+}
+
+/* ── Progress indicator ─────────────────────────────────── */
+.progress-steps {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.step-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.step-dot.active {
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(108, 92, 231, 0.5);
+}
+
+.step-dot.done {
+    background: var(--green);
+    box-shadow: 0 0 6px rgba(0, 210, 160, 0.4);
+}
+
+.step-line {
+    width: 24px;
+    height: 2px;
+    background: var(--border);
+    transition: background 0.3s ease;
+}
+
+.step-line.done {
+    background: var(--green);
+}
+
+.progress-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.3px;
+    white-space: nowrap;
 }
 
 .btn-icon {
@@ -80,7 +146,7 @@ body {
     color: var(--text);
 }
 
-/* Chat */
+/* ── Chat ───────────────────────────────────────────────── */
 .chat {
     flex: 1;
     overflow-y: auto;
@@ -94,6 +160,7 @@ body {
 .message {
     display: flex;
     max-width: 85%;
+    gap: 10px;
     animation: fadeIn 0.3s ease;
 }
 
@@ -104,18 +171,52 @@ body {
 
 .message.user {
     align-self: flex-end;
+    flex-direction: row-reverse;
 }
 
 .message.assistant {
     align-self: flex-start;
 }
 
+/* ── Avatars ────────────────────────────────────────────── */
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 16px;
+    margin-top: 2px;
+}
+
+.bot-avatar {
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    box-shadow: 0 2px 8px rgba(108, 92, 231, 0.3);
+}
+
+.user-avatar {
+    background: linear-gradient(135deg, var(--green), #00b894);
+    box-shadow: 0 2px 8px rgba(0, 210, 160, 0.3);
+}
+
+.user-avatar svg {
+    width: 16px;
+    height: 16px;
+    stroke: white;
+    fill: none;
+    stroke-width: 2;
+}
+
+/* ── Message content ────────────────────────────────────── */
 .message-content {
     padding: 12px 16px;
     border-radius: var(--radius);
     line-height: 1.6;
     font-size: 14px;
     word-wrap: break-word;
+    min-width: 0;
 }
 
 .message.user .message-content {
@@ -177,7 +278,51 @@ body {
     padding: 0;
 }
 
-/* Typing indicator */
+/* ── Quick-reply buttons ────────────────────────────────── */
+.quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-left: 42px;
+    animation: fadeIn 0.4s ease 0.15s both;
+}
+
+.quick-reply-btn {
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    color: var(--accent-light);
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.quick-reply-btn:hover {
+    background: var(--accent);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+}
+
+.quick-reply-btn:active {
+    transform: translateY(0);
+}
+
+.quick-reply-btn.selected {
+    background: var(--accent);
+    color: white;
+    pointer-events: none;
+}
+
+.quick-reply-btn.faded {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+/* ── Typing indicator ───────────────────────────────────── */
 .typing {
     display: flex;
     gap: 4px;
@@ -200,11 +345,16 @@ body {
     30% { transform: translateY(-8px); }
 }
 
-/* Input */
+/* ── Input area ─────────────────────────────────────────── */
 .input-area {
     padding: 16px 20px;
     border-top: 1px solid var(--border);
     background: var(--surface);
+}
+
+.input-area.disabled-during-onboarding {
+    opacity: 0.35;
+    pointer-events: none;
 }
 
 .input-row {
@@ -270,7 +420,7 @@ textarea::placeholder {
     transform: none;
 }
 
-/* Image preview */
+/* ── Image preview ──────────────────────────────────────── */
 .image-preview {
     padding: 8px 12px;
     border-top: 1px solid var(--border);
@@ -322,14 +472,13 @@ textarea::placeholder {
     display: none !important;
 }
 
-/* User image in chat */
 .message-image {
     max-width: 200px;
     border-radius: var(--radius-sm);
     margin-bottom: 8px;
 }
 
-/* Modal */
+/* ── Modal ──────────────────────────────────────────────── */
 .modal {
     position: fixed;
     inset: 0;
@@ -439,7 +588,7 @@ textarea::placeholder {
     background: var(--accent-light);
 }
 
-/* Scrollbar */
+/* ── Scrollbar ──────────────────────────────────────────── */
 .chat::-webkit-scrollbar {
     width: 6px;
 }
@@ -453,11 +602,15 @@ textarea::placeholder {
     border-radius: 3px;
 }
 
-/* Mobile */
+/* ── Mobile ─────────────────────────────────────────────── */
 @media (max-width: 600px) {
     .header { padding: 12px 16px; }
     .chat { padding: 12px; }
     .input-area { padding: 12px 16px; }
     .message { max-width: 92%; }
     .form-grid { grid-template-columns: 1fr; }
+    .quick-replies { padding-left: 0; }
+    .quick-reply-btn { padding: 8px 16px; font-size: 13px; }
+    .progress-label { font-size: 10px; }
+    .step-line { width: 16px; }
 }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FitAgent — AI Фитнес-тренер</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
     <div class="app">
@@ -13,6 +13,16 @@
                 <span class="logo">🏋️</span>
                 <h1>FitAgent</h1>
             </div>
+            <div class="header-center" id="onboardingProgress">
+                <div class="progress-steps">
+                    <div class="step-dot active" data-step="0"></div>
+                    <div class="step-line"></div>
+                    <div class="step-dot" data-step="1"></div>
+                    <div class="step-line"></div>
+                    <div class="step-dot" data-step="2"></div>
+                </div>
+                <div class="progress-label" id="progressLabel">Шаг 1 из 3</div>
+            </div>
             <div class="header-right">
                 <button id="profileBtn" class="btn-icon" title="Профиль">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -20,23 +30,9 @@
             </div>
         </header>
 
-        <main class="chat" id="chat">
-            <div class="message assistant">
-                <div class="message-content">
-                    <p>Привет! Я <strong>FitAgent</strong> — твой AI фитнес-тренер. Вот что я умею:</p>
-                    <ul>
-                        <li>📋 Составлять программы тренировок</li>
-                        <li>📝 Записывать тренировки и вес</li>
-                        <li>🍽️ Вести дневник питания</li>
-                        <li>📸 Считать калории по фото еды</li>
-                        <li>📊 Показывать прогресс</li>
-                    </ul>
-                    <p>Просто напиши, чем могу помочь!</p>
-                </div>
-            </div>
-        </main>
+        <main class="chat" id="chat"></main>
 
-        <footer class="input-area">
+        <footer class="input-area" id="inputArea">
             <div class="input-row">
                 <label class="btn-icon attach-btn" title="Прикрепить фото еды">
                     <input type="file" id="imageInput" accept="image/*" hidden>
@@ -118,6 +114,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=2"></script>
 </body>
 </html>
