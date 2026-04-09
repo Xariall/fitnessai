@@ -1,9 +1,23 @@
 const API = '';
-const USER_ID = 'user_' + (localStorage.getItem('fitUserId') || (() => {
-    const id = Math.random().toString(36).slice(2, 10);
+const API_SECRET = window.__FIT_API_SECRET || '';
+
+function _getOrCreateUserId() {
+    const stored = localStorage.getItem('fitUserId');
+    if (stored) return stored;
+    const id = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
     localStorage.setItem('fitUserId', id);
     return id;
-})());
+}
+const USER_ID = 'user_' + _getOrCreateUserId();
+
+function _headers(extra = {}) {
+    const h = { 'X-Api-Secret': API_SECRET, ...extra };
+    return h;
+}
+
+function _jsonHeaders() {
+    return _headers({ 'Content-Type': 'application/json' });
+}
 
 const chat = document.getElementById('chat');
 const messageInput = document.getElementById('messageInput');
@@ -132,13 +146,15 @@ async function finishOnboarding() {
     try {
         await fetch(`${API}/api/user`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: _jsonHeaders(),
             body: JSON.stringify({
                 user_id: USER_ID,
                 goal: onboardingData.goal,
             }),
         });
-    } catch {}
+    } catch (err) {
+        console.warn('Profile save failed during onboarding:', err);
+    }
 
     const prompt =
         `Моя цель — ${goalMap[onboardingData.goal] || onboardingData.goal}. ` +
@@ -152,7 +168,7 @@ async function finishOnboarding() {
     try {
         const response = await fetch(`${API}/api/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: _jsonHeaders(),
             body: JSON.stringify({ message: prompt, user_id: USER_ID }),
         });
         const data = await response.json();
@@ -286,7 +302,7 @@ removeImage.addEventListener('click', () => {
 profileBtn.addEventListener('click', async () => {
     profileModal.classList.remove('hidden');
     try {
-        const res = await fetch(`${API}/api/user/${USER_ID}`);
+        const res = await fetch(`${API}/api/user/${USER_ID}`, { headers: _headers() });
         if (res.ok) {
             const data = await res.json();
             const u = data.user;
@@ -299,7 +315,9 @@ profileBtn.addEventListener('click', async () => {
             if (u.activity) form.activity.value = u.activity;
             if (u.goal) form.goal.value = u.goal;
         }
-    } catch {}
+    } catch (err) {
+        console.warn('Failed to load profile:', err);
+    }
 });
 
 closeProfile.addEventListener('click', () => profileModal.classList.add('hidden'));
@@ -317,7 +335,7 @@ profileForm.addEventListener('submit', async (e) => {
     try {
         await fetch(`${API}/api/user`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: _jsonHeaders(),
             body: JSON.stringify(body),
         });
         profileModal.classList.add('hidden');
@@ -358,14 +376,18 @@ async function send() {
             fd.append('user_id', USER_ID);
             fd.append('weight_grams', weightInput.value || '300');
 
-            response = await fetch(`${API}/api/chat/image`, { method: 'POST', body: fd });
+            response = await fetch(`${API}/api/chat/image`, {
+                method: 'POST',
+                headers: _headers(),
+                body: fd,
+            });
             selectedImage = null;
             imageInput.value = '';
             imagePreview.classList.add('hidden');
         } else {
             response = await fetch(`${API}/api/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: _jsonHeaders(),
                 body: JSON.stringify({ message: text, user_id: USER_ID }),
             });
         }

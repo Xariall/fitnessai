@@ -8,16 +8,17 @@ DB_PATH = os.getenv("DB_PATH", str(Path(__file__).parent / "fitness.db"))
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
-    id          TEXT PRIMARY KEY,
-    name        TEXT,
-    age         INTEGER,
-    height      REAL,
-    weight      REAL,
-    gender      TEXT CHECK(gender IN ('male', 'female')),
-    activity    TEXT CHECK(activity IN ('sedentary', 'moderate', 'active', 'athlete')),
-    goal        TEXT CHECK(goal IN ('lose', 'maintain', 'gain', 'recomposition')),
-    created_at  TEXT DEFAULT (datetime('now')),
-    updated_at  TEXT DEFAULT (datetime('now'))
+    id              TEXT PRIMARY KEY,
+    name            TEXT,
+    age             INTEGER,
+    height          REAL,
+    weight          REAL,
+    gender          TEXT CHECK(gender IN ('male', 'female')),
+    activity        TEXT CHECK(activity IN ('sedentary', 'moderate', 'active', 'athlete')),
+    goal            TEXT CHECK(goal IN ('lose', 'maintain', 'gain', 'recomposition')),
+    system_msg_sent INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS weight_logs (
@@ -91,9 +92,18 @@ async def init_db():
     db = await get_db()
     try:
         await db.executescript(SCHEMA_SQL)
+        await _migrate_system_msg_column(db)
         await db.commit()
     finally:
         await db.close()
+
+
+async def _migrate_system_msg_column(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(users)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "system_msg_sent" in columns:
+        return
+    await db.execute("ALTER TABLE users ADD COLUMN system_msg_sent INTEGER NOT NULL DEFAULT 0")
 
 
 # ── Users ───────────────────────────────────────────────────────────────
@@ -108,6 +118,30 @@ async def ensure_user(user_id: str):
         if not rows:
             await db.execute("INSERT INTO users (id) VALUES (?)", (user_id,))
             await db.commit()
+    finally:
+        await db.close()
+
+
+async def has_system_message_flag(user_id: str) -> bool:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT system_msg_sent FROM users WHERE id = ?", (user_id,)
+        )
+        if not rows:
+            return False
+        return bool(rows[0][0])
+    finally:
+        await db.close()
+
+
+async def set_system_message_flag(user_id: str) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE users SET system_msg_sent = 1 WHERE id = ?", (user_id,)
+        )
+        await db.commit()
     finally:
         await db.close()
 

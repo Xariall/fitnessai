@@ -2,30 +2,53 @@
 
 import base64
 import logging
-from collections import defaultdict
+import os
+import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pathlib import Path
 from langchain_core.messages import HumanMessage, SystemMessage
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
-from api.schemas import ChatRequest, UserProfile
-from database.db import init_db, upsert_user, get_user, ensure_user
-from agent.graph import get_graph, cleanup
+from agent.graph import cleanup, get_graph
 from agent.prompts import SYSTEM_PROMPT
+from api.schemas import ChatRequest, UserProfile
+from database.db import (
+    ensure_user, get_user, has_system_message_flag,
+    init_db, set_system_message_flag, upsert_user,
+)
 
 load_dotenv()
 
 logging.getLogger("google.genai").setLevel(logging.ERROR)
-
 logger = logging.getLogger("fitagent")
 
-_first_message: set[str] = set()
+_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_IMAGE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+_USER_ID_RE = re.compile(r"^[\w\-]+$")
 
+WEB_DIR = Path(__file__).parent.parent / "web"
+limiter = Limiter(key_func=get_remote_address)
+
+
+# ── Auth ─────────────────────────────────────────────────────────────────
+
+def _require_auth(x_api_secret: str = Header(default="")) -> None:
+    expected = os.getenv("API_SECRET", "")
+    if not expected:
+        return
+    if x_api_secret != expected:
+        raise HTTPException(401, "Invalid or missing API secret")
+
+
+# ── App factory ──────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,37 +59,52 @@ async def lifespan(app: FastAPI):
     await cleanup()
 
 
-app = FastAPI(title="FitAgent API", lifespan=lifespan)
+def _rate_limit_handler(_request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return JSONResponse(
+        {"response": "Слишком много запросов. Подождите минуту."},
+        status_code=429,
+    )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-WEB_DIR = Path(__file__).parent.parent / "web"
-if WEB_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
+def _make_app() -> FastAPI:
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8000").split(",")
+    application = FastAPI(title="FitAgent API", lifespan=lifespan)
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in allowed_origins],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "X-Api-Secret"],
+    )
+    if WEB_DIR.exists():
+        application.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
+    return application
+
+
+app = _make_app()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────
+
+def _extract_content(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            block if isinstance(block, str) else block.get("text", "")
+            for block in content
+            if isinstance(block, (str, dict))
+        ]
+        return "\n".join(p for p in parts if p) or str(content)
+    return str(content)
 
 
 def _extract_text(response: dict) -> str:
-    messages = response.get("messages", [])
-    for msg in reversed(messages):
+    for msg in reversed(response.get("messages", [])):
         if hasattr(msg, "type") and msg.type == "ai" and msg.content:
             if not getattr(msg, "tool_calls", None):
-                content = msg.content
-                if isinstance(content, str):
-                    return content
-                if isinstance(content, list):
-                    parts = []
-                    for block in content:
-                        if isinstance(block, str):
-                            parts.append(block)
-                        elif isinstance(block, dict) and "text" in block:
-                            parts.append(block["text"])
-                    return "\n".join(parts) if parts else str(content)
-                return str(content)
+                return _extract_content(msg.content)
     return "Не удалось получить ответ."
 
 
@@ -79,28 +117,43 @@ def _friendly_error(e: Exception) -> str:
     return "Произошла ошибка. Попробуйте ещё раз."
 
 
+def _validated_user_id(raw: str) -> str:
+    raw = raw.strip()[:64]
+    if not raw or not _USER_ID_RE.match(raw):
+        raise HTTPException(400, "Недопустимый user_id")
+    return raw
+
+
+async def _build_messages(user_id: str, user_message: str) -> list:
+    messages = []
+    if not await has_system_message_flag(user_id):
+        messages.append(SystemMessage(content=SYSTEM_PROMPT.format(user_id=user_id), id="system"))
+        await set_system_message_flag(user_id)
+    messages.append(HumanMessage(content=user_message))
+    return messages
+
+
 async def _run_agent(user_id: str, user_message: str) -> str:
     await ensure_user(user_id)
     graph = await get_graph()
-
-    new_messages = []
-    if user_id not in _first_message:
-        new_messages.append(
-            SystemMessage(content=SYSTEM_PROMPT.format(user_id=user_id), id="system")
-        )
-        _first_message.add(user_id)
-
-    new_messages.append(HumanMessage(content=user_message))
-
+    messages = await _build_messages(user_id, user_message)
     config = {"configurable": {"thread_id": user_id}}
-    response = await graph.ainvoke({"messages": new_messages}, config=config)
+    response = await graph.ainvoke({"messages": messages}, config=config)
     return _extract_text(response)
+
+
+def _validate_image(image: UploadFile, image_bytes: bytes) -> None:
+    if image.content_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, f"Разрешены только форматы: {', '.join(_ALLOWED_IMAGE_TYPES)}")
+    if len(image_bytes) > _IMAGE_MAX_BYTES:
+        raise HTTPException(413, "Изображение слишком большое (макс. 5 МБ)")
 
 
 # ── Chat endpoints ──────────────────────────────────────────────────────
 
-@app.post("/api/chat")
-async def chat(req: ChatRequest):
+@app.post("/api/chat", dependencies=[Depends(_require_auth)])
+@limiter.limit("20/minute")
+async def chat(request: Request, req: ChatRequest):
     try:
         text = await _run_agent(req.user_id, req.message)
         return {"response": text}
@@ -109,16 +162,20 @@ async def chat(req: ChatRequest):
         return {"response": _friendly_error(e)}
 
 
-@app.post("/api/chat/image")
+@app.post("/api/chat/image", dependencies=[Depends(_require_auth)])
+@limiter.limit("10/minute")
 async def chat_with_image(
+    request: Request,
     message: str = Form("Что это за блюдо?"),
     user_id: str = Form("default"),
     weight_grams: float = Form(300),
     image: UploadFile = File(...),
 ):
+    user_id = _validated_user_id(user_id)
     image_bytes = await image.read()
-    image_b64 = base64.b64encode(image_bytes).decode()
+    _validate_image(image, image_bytes)
 
+    image_b64 = base64.b64encode(image_bytes).decode()
     combined_message = (
         f"{message}\n\n"
         f"[Пользователь отправил фото еды. Вес порции: {weight_grams}г. "
@@ -137,15 +194,16 @@ async def chat_with_image(
 
 # ── User profile ────────────────────────────────────────────────────────
 
-@app.post("/api/user")
+@app.post("/api/user", dependencies=[Depends(_require_auth)])
 async def create_or_update_user(profile: UserProfile):
     fields = profile.model_dump(exclude={"user_id"}, exclude_none=True)
     user = await upsert_user(profile.user_id, **fields)
     return {"user": user}
 
 
-@app.get("/api/user/{user_id}")
+@app.get("/api/user/{user_id}", dependencies=[Depends(_require_auth)])
 async def get_user_profile(user_id: str):
+    user_id = _validated_user_id(user_id)
     user = await get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")

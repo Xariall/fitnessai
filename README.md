@@ -21,14 +21,19 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Настройка API ключа
+### 2. Настройка окружения
+
+```bash
+cp .env.example .env
+```
 
 Получите бесплатный API ключ: https://aistudio.google.com/apikey
 
-```bash
-# .env
-GEMINI_API_KEY=ваш_ключ_сюда
-```
+Заполните `.env`:
+- `GEMINI_API_KEY` — ключ от Google AI Studio
+- `BOT_TOKEN` — токен Telegram бота (из BotFather)
+- `DB_PASS` — надёжный пароль для PostgreSQL
+- `API_SECRET` — общий секрет для авторизации запросов (опционально, пусто = без авторизации)
 
 ### 3. Запуск
 
