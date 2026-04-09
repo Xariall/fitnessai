@@ -1,6 +1,16 @@
+# Python
 .env
 __pycache__/
 *.pyc
 .venv/
 *.db
+*.db-shm
+*.db-wal
 chroma_db/
+
+# Node / fitagentfront
+fitagentfront/node_modules/
+fitagentfront/dist/
+fitagentfront/.manus-logs/
+node_modules/
+dist/

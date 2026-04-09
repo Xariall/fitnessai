@@ -1,106 +1,204 @@
-# FitAgent — AI Фитнес-тренер
+# FitAgent — AI Fitness Trainer
 
-Персональный AI фитнес-тренер с поддержкой тренировок, питания и анализа фото еды.
+An AI-powered fitness and nutrition assistant built with LangGraph, Gemini 2.5, and a React frontend.
 
-## Стек
+---
 
-- **Gemini 2.0 Flash** — LLM с vision (анализ фото еды)
-- **FastAPI** — бэкенд
-- **LangGraph** — агент-оркестратор
-- **FastMCP** — 2 MCP-сервера (тренировки + питание)
-- **SQLite** — база данных
-- **HTML/JS** — веб-интерфейс чата
+## Architecture
 
-## Быстрый старт
-
-### 1. Установка зависимостей
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+```
+Browser
+  └── fitagentfront  (React 19 + tRPC, port 3000)
+        └── FastAPI  (port 8000)
+              ├── Google OAuth 2.0
+              ├── LangGraph Agent + Gemini Flash
+              ├── MCP Servers  (fitness_mcp · nutrition_mcp)
+              └── PostgreSQL   (users · conversations · workouts · nutrition)
 ```
 
-### 2. Настройка окружения
+### Services (Docker Compose)
+
+| Service | Image | Port | Role |
+|---------|-------|------|------|
+| `db` | `pgvector/pgvector:pg16` | 5433 | PostgreSQL 16 |
+| `api` | Python 3.11 | 8000 | FastAPI — agent + auth + data API |
+| `frontend` | Node 20 | 3000 | React SPA + Express BFF |
+
+---
+
+## Quick Start (Docker)
+
+### 1. Prerequisites
+
+- Docker Desktop ≥ 4.x
+- A Google Cloud project with OAuth 2.0 credentials
+- A Gemini API key — [aistudio.google.com](https://aistudio.google.com/apikey)
+
+### 2. Configure environment
 
 ```bash
 cp .env.example .env
+# Edit .env — fill in GEMINI_API_KEY, GOOGLE_CLIENT_ID,
+#   GOOGLE_CLIENT_SECRET, JWT_SECRET
 ```
 
-Получите бесплатный API ключ: https://aistudio.google.com/apikey
+**Required `.env` values:**
 
-Заполните `.env`:
-- `GEMINI_API_KEY` — ключ от Google AI Studio
-- `BOT_TOKEN` — токен Telegram бота (из BotFather)
-- `DB_PASS` — надёжный пароль для PostgreSQL
-- `API_SECRET` — общий секрет для авторизации запросов (опционально, пусто = без авторизации)
+| Variable | Where to get it |
+|----------|----------------|
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) |
+| `GOOGLE_CLIENT_ID` | [GCP Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) |
+| `GOOGLE_CLIENT_SECRET` | Same as above |
+| `JWT_SECRET` | `openssl rand -hex 32` |
 
-### 3. Запуск
+**Google OAuth callback URI** (add to your GCP OAuth client):
+```
+http://localhost:8000/api/auth/callback
+```
+
+### 3. Build and run
 
 ```bash
-python -m uvicorn api.main:app --reload --port 8000
+docker compose up --build -d
 ```
 
-Откройте http://localhost:8000
+### 4. Verify
 
-## Что умеет
-
-| Команда | Пример |
-|---------|--------|
-| Программа тренировок | «Составь программу на 3 дня для похудения» |
-| Запись тренировки | «Запиши тренировку: жим 80кг 3x10» |
-| Запись веса | «Мой вес сегодня 78кг» |
-| Дневник питания | «Что я ел сегодня?» |
-| Запись еды | «Записи: куриная грудка 200г» |
-| Анализ фото | Прикрепить фото + указать вес порции |
-| Расчёт ИМТ | «Рассчитай мой ИМТ» |
-| Норма калорий | «Какая моя дневная норма?» |
-
-## Архитектура
-
-```
-Web UI (HTML/JS)
-     ↓
-FastAPI (/api/chat, /api/chat/image)
-     ↓
-LangGraph Agent (Gemini 2.0 Flash)
-     ↓
-┌────────────┐    ┌──────────────┐    ┌──────────────┐
-│ fitness_mcp │    │ nutrition_mcp│    │ Custom Tools │
-│ (FastMCP)   │    │ (FastMCP)    │    │ (Gemini API) │
-└──────┬──────┘    └──────┬───────┘    └──────────────┘
-       └──────────┬───────┘
-              SQLite DB
+```bash
+docker compose ps          # all three services Up
+curl http://localhost:8000/api/health   # {"status":"ok"}
 ```
 
-## MCP-серверы
+Open **http://localhost:3000** in your browser.
 
-### fitness_mcp (8 tools)
-- `get_exercises` — список упражнений по группе мышц
-- `log_workout_entry` — запись тренировки
-- `get_workout_logs` — история тренировок
-- `log_weight` / `get_weight_history` — вес тела
-- `save_program` / `get_programs` — программы
-- `get_progress` — сводка прогресса
+---
 
-### nutrition_mcp (6 tools)
-- `search_food` — поиск продуктов (57 в базе)
-- `log_meal` / `log_meal_from_base` — запись еды
-- `get_food_diary` — дневник за день
-- `get_daily_summary` — итого КБЖУ
-- `calculate_daily_norm` — норма по профилю
+## Local Development (without Docker)
 
-### Custom tools (3)
-- `analyze_food_photo` — Gemini Vision анализ фото
-- `calculate_bmi` — расчёт ИМТ
-- `generate_workout_plan` — генерация программы через Gemini
+### FastAPI
 
-## API
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Start PostgreSQL separately (e.g. via Docker):
+docker run -d --name pg -p 5433:5432 \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=changeme \
+  -e POSTGRES_DB=fitness_ai pgvector/pgvector:pg16
+
+# Apply migrations and start
+alembic upgrade head
+fastapi dev api/main.py
+```
+
+### Frontend
+
+```bash
+cd fitagentfront
+pnpm install
+pnpm dev          # http://localhost:3000
+```
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GEMINI_API_KEY` | — | Google Gemini API key |
+| `GEMINI_MODEL` | `gemini-2.0-flash-lite` | Model name |
+| `DB_USER` | `postgres` | PostgreSQL user |
+| `DB_PASS` | `changeme` | PostgreSQL password |
+| `DB_NAME` | `fitness_ai` | Database name |
+| `DATABASE_URL` | — | Full asyncpg connection string |
+| `GOOGLE_CLIENT_ID` | — | OAuth 2.0 client ID |
+| `GOOGLE_CLIENT_SECRET` | — | OAuth 2.0 client secret |
+| `JWT_SECRET` | — | HS256 signing secret (min 32 chars) |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,...` | CORS allowed origins |
+| `FASTAPI_URL` | `http://localhost:8000` | Internal server→server URL |
+| `FASTAPI_BASE_URL` | `http://localhost:8000` | Public URL for OAuth redirects |
+| `FRONTEND_URL` | `http://localhost:3000` | Frontend URL (OAuth final redirect) |
+
+---
+
+## API Endpoints
+
+### Auth
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/auth/google` | Start Google OAuth flow |
+| `GET` | `/api/auth/callback` | OAuth callback → sets JWT cookie |
+| `GET` | `/api/auth/me` | Get current user |
+| `POST` | `/api/auth/logout` | Clear session cookie |
+
+### Conversations & Chat
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/conversations` | Create new conversation |
+| `GET` | `/api/conversations` | List user's conversations |
+| `GET` | `/api/conversations/{id}/messages` | Get messages |
+| `POST` | `/api/conversations/{id}/chat` | Send text message to agent |
+| `POST` | `/api/conversations/{id}/chat/image` | Send food photo to agent |
+
+### Profile & Waitlist
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/profile` | Get user profile |
+| `PUT` | `/api/profile` | Update fitness profile |
+| `POST` | `/api/waitlist` | Join waitlist |
+| `GET` | `/api/health` | Health check |
+
+---
+
+## Project Structure
 
 ```
-POST /api/chat          — текстовый чат
-POST /api/chat/image    — чат с фото (multipart/form-data)
-POST /api/user          — создание/обновление профиля
-GET  /api/user/{id}     — получение профиля
-GET  /                  — веб-интерфейс
+fitnessai/
+├── api/                  # FastAPI routes
+│   ├── auth.py           # Google OAuth + JWT
+│   ├── main.py           # App factory + all endpoints
+│   └── schemas.py        # Pydantic request/response models
+├── agent/                # LangGraph agent
+│   ├── graph.py          # Compiled graph with memory
+│   └── prompts.py        # System prompt
+├── database/             # SQLAlchemy ORM
+│   ├── models.py         # All table models
+│   ├── engine.py         # Async engine + session factory
+│   ├── db.py             # CRUD helpers
+│   └── seed.py           # Initial exercises & food products
+├── migrations/           # Alembic migrations
+├── mcp_servers/          # FastMCP tool servers
+│   ├── fitness_mcp.py    # Workout & weight tools
+│   └── nutrition_mcp.py  # Food diary & nutrition tools
+├── scripts/
+│   └── migrate.py        # Smart migration runner
+├── fitagentfront/        # React + tRPC frontend
+│   ├── client/src/       # React SPA
+│   └── server/           # Express BFF + tRPC router
+├── Dockerfile            # Python image (api)
+├── entrypoint.sh         # migrate → fastapi run
+├── docker-compose.yml
+└── .env.example
+```
+
+---
+
+## Useful Commands
+
+```bash
+# Logs
+docker compose logs -f api
+docker compose logs -f frontend
+
+# Restart a single service
+docker compose restart api
+
+# Full reset (wipes DB volume)
+docker compose down -v && docker compose up --build -d
+
+# Run migrations manually
+docker compose exec api alembic upgrade head
+
+# Open DB shell
+docker compose exec db psql -U postgres -d fitness_ai
 ```

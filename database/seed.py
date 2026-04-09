@@ -1,7 +1,11 @@
 """Populate exercises and food_products with starter data."""
 
 import asyncio
-from database.db import get_db, init_db
+
+from sqlalchemy import select
+
+from database.engine import AsyncSessionLocal, init_db
+from database.models import Exercise, FoodProduct
 
 EXERCISES = [
     # Грудь
@@ -47,21 +51,17 @@ EXERCISES = [
     ("Русский твист", "abs", "гантели", "Ротация корпуса"),
 ]
 
-# Продукты: (name, kcal, protein, fat, carbs) — на 100 г
 FOOD_PRODUCTS = [
-    # Мясо и птица
     ("Куриная грудка", 165, 31.0, 3.6, 0.0),
     ("Куриное бедро", 209, 26.0, 10.9, 0.0),
     ("Говядина (вырезка)", 218, 26.0, 12.0, 0.0),
     ("Свинина (корейка)", 242, 27.0, 14.0, 0.0),
     ("Индейка (филе)", 157, 30.0, 3.5, 0.0),
     ("Фарш говяжий (15%)", 215, 26.0, 12.0, 0.0),
-    # Рыба и морепродукты
     ("Лосось", 208, 20.0, 13.0, 0.0),
     ("Тунец (консервы)", 116, 26.0, 1.0, 0.0),
     ("Треска", 82, 18.0, 0.7, 0.0),
     ("Креветки", 99, 24.0, 0.3, 0.2),
-    # Молочные продукты
     ("Молоко 2.5%", 52, 2.8, 2.5, 4.7),
     ("Творог 5%", 121, 17.2, 5.0, 1.8),
     ("Творог 0%", 71, 18.0, 0.1, 1.8),
@@ -69,18 +69,15 @@ FOOD_PRODUCTS = [
     ("Сыр (голландский)", 350, 26.0, 27.0, 0.0),
     ("Яйцо куриное", 155, 12.7, 10.9, 0.7),
     ("Кефир 1%", 40, 3.4, 1.0, 4.0),
-    # Крупы и злаки
     ("Рис белый (сухой)", 344, 6.7, 0.7, 78.9),
     ("Гречка (сухая)", 313, 12.6, 3.3, 62.1),
     ("Овсянка (сухая)", 352, 12.3, 6.1, 59.5),
     ("Макароны (сухие)", 350, 12.0, 1.5, 72.0),
     ("Пшено (сухое)", 348, 11.5, 3.3, 66.5),
     ("Булгур (сухой)", 342, 12.3, 1.3, 75.9),
-    # Хлеб и выпечка
     ("Хлеб белый", 265, 7.7, 3.3, 49.0),
     ("Хлеб чёрный", 174, 6.6, 1.2, 33.4),
     ("Лаваш тонкий", 275, 9.1, 1.2, 56.0),
-    # Овощи
     ("Огурец", 15, 0.7, 0.1, 2.8),
     ("Помидор", 18, 0.9, 0.2, 3.9),
     ("Картофель", 77, 2.0, 0.1, 17.0),
@@ -89,28 +86,22 @@ FOOD_PRODUCTS = [
     ("Капуста белокочанная", 27, 1.3, 0.1, 5.8),
     ("Перец болгарский", 27, 1.3, 0.1, 5.3),
     ("Лук репчатый", 40, 1.1, 0.1, 9.3),
-    # Фрукты
     ("Банан", 89, 1.1, 0.3, 22.8),
     ("Яблоко", 52, 0.3, 0.2, 13.8),
     ("Апельсин", 47, 0.9, 0.1, 11.8),
     ("Виноград", 67, 0.6, 0.4, 17.1),
-    # Орехи и семечки
     ("Миндаль", 579, 21.2, 49.9, 21.6),
     ("Грецкий орех", 654, 15.2, 65.2, 13.7),
     ("Арахис", 567, 25.8, 49.2, 16.1),
     ("Семечки подсолнуха", 601, 20.7, 52.9, 20.0),
-    # Бобовые
     ("Чечевица (сухая)", 352, 24.6, 1.1, 63.4),
     ("Нут (сухой)", 364, 19.3, 6.0, 60.7),
     ("Фасоль красная (сухая)", 333, 23.6, 0.8, 60.0),
-    # Масла и соусы
     ("Масло оливковое", 884, 0.0, 100.0, 0.0),
     ("Масло сливочное", 717, 0.9, 81.0, 0.1),
-    # Напитки и сладости
     ("Мёд", 304, 0.3, 0.0, 82.4),
     ("Шоколад тёмный (70%)", 520, 7.8, 34.0, 52.4),
     ("Протеиновый коктейль", 110, 24.0, 1.5, 3.0),
-    # Готовые блюда (примерные значения)
     ("Плов", 150, 6.0, 6.0, 18.0),
     ("Борщ", 49, 2.7, 1.8, 5.4),
     ("Окрошка", 52, 2.1, 1.8, 6.9),
@@ -121,28 +112,25 @@ FOOD_PRODUCTS = [
 ]
 
 
-async def seed():
+async def seed() -> None:
     await init_db()
-    db = await get_db()
-    try:
-        count = await db.execute_fetchall("SELECT COUNT(*) as c FROM exercises")
-        if count[0]["c"] == 0:
-            await db.executemany(
-                "INSERT INTO exercises (name, muscle_group, equipment, description) VALUES (?, ?, ?, ?)",
-                EXERCISES,
-            )
+    async with AsyncSessionLocal() as session:
+        ex_count = await session.scalar(select(Exercise).with_only_columns(Exercise.id).limit(1))
+        if ex_count is None:
+            session.add_all([
+                Exercise(name=n, muscle_group=mg, equipment=eq, description=desc)
+                for n, mg, eq, desc in EXERCISES
+            ])
 
-        count = await db.execute_fetchall("SELECT COUNT(*) as c FROM food_products")
-        if count[0]["c"] == 0:
-            await db.executemany(
-                "INSERT INTO food_products (name, calories, protein, fat, carbs) VALUES (?, ?, ?, ?, ?)",
-                FOOD_PRODUCTS,
-            )
+        food_count = await session.scalar(select(FoodProduct).with_only_columns(FoodProduct.id).limit(1))
+        if food_count is None:
+            session.add_all([
+                FoodProduct(name=n, calories=cal, protein=prot, fat=fat, carbs=carb)
+                for n, cal, prot, fat, carb in FOOD_PRODUCTS
+            ])
 
-        await db.commit()
-        print(f"Seeded {len(EXERCISES)} exercises, {len(FOOD_PRODUCTS)} food products")
-    finally:
-        await db.close()
+        await session.commit()
+        print(f"Seed: {len(EXERCISES)} exercises, {len(FOOD_PRODUCTS)} food products ready.")
 
 
 if __name__ == "__main__":

@@ -3,18 +3,10 @@ from pydantic import BaseModel, Field, field_validator
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
-    user_id: str = Field(default="default", min_length=1, max_length=64, pattern=r"^[\w\-]+$")
+    conversation_id: int | None = None
 
 
-class ChatImageRequest(BaseModel):
-    message: str = Field(default="Что это за блюдо?", max_length=500)
-    user_id: str = Field(default="default", min_length=1, max_length=64, pattern=r"^[\w\-]+$")
-    image_base64: str
-    weight_grams: float = Field(default=300, gt=0, le=5000)
-
-
-class UserProfile(BaseModel):
-    user_id: str = Field(min_length=1, max_length=64, pattern=r"^[\w\-]+$")
+class UserProfileUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=100)
     age: int | None = Field(default=None, ge=10, le=120)
     height: float | None = Field(default=None, gt=50, le=300)
@@ -28,9 +20,8 @@ class UserProfile(BaseModel):
     def validate_gender(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        allowed = {"male", "female", "other"}
-        if v not in allowed:
-            raise ValueError(f"gender must be one of {allowed}")
+        if v not in {"male", "female", "other"}:
+            raise ValueError("gender must be male, female, or other")
         return v
 
     @field_validator("activity")
@@ -38,9 +29,8 @@ class UserProfile(BaseModel):
     def validate_activity(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        allowed = {"sedentary", "light", "moderate", "active", "very_active"}
-        if v not in allowed:
-            raise ValueError(f"activity must be one of {allowed}")
+        if v not in {"sedentary", "moderate", "active", "athlete"}:
+            raise ValueError("invalid activity level")
         return v
 
     @field_validator("goal")
@@ -48,7 +38,15 @@ class UserProfile(BaseModel):
     def validate_goal(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        allowed = {"lose", "gain", "maintain", "recomposition"}
-        if v not in allowed:
-            raise ValueError(f"goal must be one of {allowed}")
+        if v not in {"lose", "gain", "maintain", "recomposition"}:
+            raise ValueError("invalid goal")
         return v
+
+
+class WaitlistSignup(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    name: str | None = Field(default=None, max_length=255)
+
+
+class ConversationCreate(BaseModel):
+    title: str | None = Field(default=None, max_length=255)

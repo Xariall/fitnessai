@@ -1,5 +1,5 @@
-version: '3.8'
 services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
   db:
     image: pgvector/pgvector:pg16
     container_name: fitness_db
@@ -12,19 +12,54 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  bot:
-    build: .
-    container_name: fitness_bot
+  # ── Python FastAPI backend ──────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fitness_api
     restart: always
+    # entrypoint.sh: alembic upgrade head → fastapi run
+    entrypoint: ["./entrypoint.sh"]
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file:
       - .env
     environment:
-      OLLAMA_HOST: "http://host.docker.internal:11434"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # Override DB URL to use the internal Docker service name "db"
+      DATABASE_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}"
+      # FASTAPI_BASE_URL, FRONTEND_URL, GOOGLE_*, JWT_SECRET  ← come from .env
+      # They must use the PUBLIC host (localhost / your domain), NOT internal names,
+      # because Google redirects the user's *browser* to these URLs.
+    ports:
+      - "8000:8000"
+
+  # ── React / tRPC frontend ───────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./fitagentfront
+      dockerfile: Dockerfile
+    container_name: fitness_frontend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      # Express calls FastAPI over the internal Docker network
+      FASTAPI_URL: "http://api:8000"
+      # JWT_SECRET, FRONTEND_URL  ← come from .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 
 volumes:
   postgres_data:

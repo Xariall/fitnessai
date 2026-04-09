@@ -1,17 +1,19 @@
-"""FastAPI application — FitAgent backend."""
+"""FastAPI — clean API server.
+
+Serves only /api/* routes; the React frontend (fitagentfront) runs separately.
+"""
+
+from __future__ import annotations
 
 import base64
 import logging
 import os
-import re
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile, File, Form
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -19,11 +21,21 @@ from slowapi.util import get_remote_address
 
 from agent.graph import cleanup, get_graph
 from agent.prompts import SYSTEM_PROMPT
-from api.schemas import ChatRequest, UserProfile
+from api.auth import get_current_user, router as auth_router
+from api.schemas import ChatRequest, ConversationCreate, UserProfileUpdate, WaitlistSignup
 from database.db import (
-    ensure_user, get_user, has_system_message_flag,
-    init_db, set_system_message_flag, upsert_user,
+    add_message,
+    add_to_waitlist,
+    create_conversation,
+    get_and_set_system_msg_flag,
+    get_conversation,
+    get_conversations,
+    get_messages,
+    update_conversation_title,
+    upsert_user_profile,
 )
+from database.models import User
+from database.seed import seed
 
 load_dotenv()
 
@@ -31,72 +43,63 @@ logging.getLogger("google.genai").setLevel(logging.ERROR)
 logger = logging.getLogger("fitagent")
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
-_IMAGE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
-_USER_ID_RE = re.compile(r"^[\w\-]+$")
-
-WEB_DIR = Path(__file__).parent.parent / "web"
-limiter = Limiter(key_func=get_remote_address)
+_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 
 
-# ── Auth ─────────────────────────────────────────────────────────────────
-
-def _require_auth(x_api_secret: str = Header(default="")) -> None:
-    expected = os.getenv("API_SECRET", "")
-    if not expected:
-        return
-    if x_api_secret != expected:
-        raise HTTPException(401, "Invalid or missing API secret")
-
-
-# ── App factory ──────────────────────────────────────────────────────────
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-    from database.seed import seed
+    # Schema is managed by Alembic (entrypoint.sh runs `alembic upgrade head`).
+    # seed() is idempotent — only inserts data if tables are empty.
     await seed()
     yield
     await cleanup()
 
 
-def _rate_limit_handler(_request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    return JSONResponse(
-        {"response": "Слишком много запросов. Подождите минуту."},
-        status_code=429,
-    )
-
+# ── App factory ───────────────────────────────────────────────────────────────
 
 def _make_app() -> FastAPI:
-    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8000").split(",")
-    application = FastAPI(title="FitAgent API", lifespan=lifespan)
-    application.state.limiter = limiter
-    application.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
-    application.add_middleware(
+    allowed_origins = os.getenv(
+        "ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000"
+    ).split(",")
+
+    app = FastAPI(title="FitAgent API", version="2.0.0", lifespan=lifespan)
+
+    limiter = Limiter(key_func=get_remote_address)
+    app.state.limiter = limiter
+
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(_req: Request, _exc: RateLimitExceeded) -> JSONResponse:
+        return JSONResponse({"detail": "Слишком много запросов. Подождите минуту."}, status_code=429)
+
+    app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in allowed_origins],
-        allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type", "X-Api-Secret"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "Authorization"],
     )
-    if WEB_DIR.exists():
-        application.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
-    return application
+
+    app.include_router(auth_router)
+    return app
 
 
 app = _make_app()
+limiter = app.state.limiter
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _extract_content(content) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        parts = [
-            block if isinstance(block, str) else block.get("text", "")
-            for block in content
-            if isinstance(block, (str, dict))
-        ]
-        return "\n".join(p for p in parts if p) or str(content)
+        return "\n".join(
+            b if isinstance(b, str) else b.get("text", "")
+            for b in content
+            if isinstance(b, (str, dict))
+        ) or str(content)
     return str(content)
 
 
@@ -117,104 +120,159 @@ def _friendly_error(e: Exception) -> str:
     return "Произошла ошибка. Попробуйте ещё раз."
 
 
-def _validated_user_id(raw: str) -> str:
-    raw = raw.strip()[:64]
-    if not raw or not _USER_ID_RE.match(raw):
-        raise HTTPException(400, "Недопустимый user_id")
-    return raw
-
-
-async def _build_messages(user_id: str, user_message: str) -> list:
-    messages = []
-    if not await has_system_message_flag(user_id):
-        messages.append(SystemMessage(content=SYSTEM_PROMPT.format(user_id=user_id), id="system"))
-        await set_system_message_flag(user_id)
-    messages.append(HumanMessage(content=user_message))
-    return messages
-
-
-async def _run_agent(user_id: str, user_message: str) -> str:
-    await ensure_user(user_id)
+async def _run_agent(user_id: int, conversation_id: int, user_message: str) -> str:
     graph = await get_graph()
-    messages = await _build_messages(user_id, user_message)
-    config = {"configurable": {"thread_id": user_id}}
+    thread_id = str(conversation_id)
+
+    # Inject system prompt only on first message in this conversation
+    is_first = await get_and_set_system_msg_flag(conversation_id)
+
+    messages = []
+    if is_first:
+        messages.append(SystemMessage(
+            content=SYSTEM_PROMPT.format(user_id=str(user_id)), id="system"
+        ))
+    messages.append(HumanMessage(content=user_message))
+
+    config = {"configurable": {"thread_id": thread_id}}
     response = await graph.ainvoke({"messages": messages}, config=config)
     return _extract_text(response)
 
 
-def _validate_image(image: UploadFile, image_bytes: bytes) -> None:
-    if image.content_type not in _ALLOWED_IMAGE_TYPES:
-        raise HTTPException(400, f"Разрешены только форматы: {', '.join(_ALLOWED_IMAGE_TYPES)}")
-    if len(image_bytes) > _IMAGE_MAX_BYTES:
-        raise HTTPException(413, "Изображение слишком большое (макс. 5 МБ)")
+# ── Conversations ─────────────────────────────────────────────────────────────
+
+@app.post("/api/conversations")
+async def create_conv(
+    body: ConversationCreate,
+    user: User = Depends(get_current_user),
+) -> dict:
+    conv = await create_conversation(user.id, body.title or "Новый чат")
+    return {"id": conv.id, "title": conv.title, "created_at": conv.created_at.isoformat()}
 
 
-# ── Chat endpoints ──────────────────────────────────────────────────────
+@app.get("/api/conversations")
+async def list_convs(user: User = Depends(get_current_user)) -> list[dict]:
+    return await get_conversations(user.id)
 
-@app.post("/api/chat", dependencies=[Depends(_require_auth)])
+
+@app.get("/api/conversations/{conv_id}/messages")
+async def list_messages(conv_id: int, user: User = Depends(get_current_user)) -> list[dict]:
+    conv = await get_conversation(conv_id, user.id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    return await get_messages(conv_id)
+
+
+@app.post("/api/conversations/{conv_id}/chat")
 @limiter.limit("20/minute")
-async def chat(request: Request, req: ChatRequest):
+async def chat_in_conversation(
+    conv_id: int,
+    request: Request,
+    body: ChatRequest,
+    user: User = Depends(get_current_user),
+) -> dict:
+    conv = await get_conversation(conv_id, user.id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+
+    await add_message(conv_id, "user", body.message)
+
     try:
-        text = await _run_agent(req.user_id, req.message)
-        return {"response": text}
+        reply = await _run_agent(user.id, conv_id, body.message)
     except Exception as e:
-        logger.exception("Chat error")
-        return {"response": _friendly_error(e)}
+        logger.exception("Agent error")
+        reply = _friendly_error(e)
+
+    await add_message(conv_id, "assistant", reply)
+
+    msgs = await get_messages(conv_id)
+    if len(msgs) == 2:
+        title = body.message[:50]
+        await update_conversation_title(conv_id, title)
+
+    return {"response": reply}
 
 
-@app.post("/api/chat/image", dependencies=[Depends(_require_auth)])
+@app.post("/api/conversations/{conv_id}/chat/image")
 @limiter.limit("10/minute")
 async def chat_with_image(
+    conv_id: int,
     request: Request,
     message: str = Form("Что это за блюдо?"),
-    user_id: str = Form("default"),
     weight_grams: float = Form(300),
     image: UploadFile = File(...),
-):
-    user_id = _validated_user_id(user_id)
+    user: User = Depends(get_current_user),
+) -> dict:
+    conv = await get_conversation(conv_id, user.id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+
     image_bytes = await image.read()
-    _validate_image(image, image_bytes)
+    if image.content_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(400, f"Allowed formats: {', '.join(_ALLOWED_IMAGE_TYPES)}")
+    if len(image_bytes) > _IMAGE_MAX_BYTES:
+        raise HTTPException(413, "Image too large (max 5 MB)")
 
     image_b64 = base64.b64encode(image_bytes).decode()
-    combined_message = (
+    combined = (
         f"{message}\n\n"
         f"[Пользователь отправил фото еды. Вес порции: {weight_grams}г. "
-        f"Используй tool analyze_food_photo с параметрами image_base64 и weight_grams={weight_grams}, "
-        f"затем запиши результат в дневник через log_meal.]\n"
+        f"Используй analyze_food_photo с image_base64 и weight_grams={weight_grams}, "
+        f"затем запиши результат через log_meal.]\n"
         f"image_base64_data:{image_b64}"
     )
 
+    await add_message(conv_id, "user", message)
+
     try:
-        text = await _run_agent(user_id, combined_message)
-        return {"response": text}
+        reply = await _run_agent(user.id, conv_id, combined)
     except Exception as e:
-        logger.exception("Image chat error")
-        return {"response": _friendly_error(e)}
+        logger.exception("Agent image error")
+        reply = _friendly_error(e)
+
+    await add_message(conv_id, "assistant", reply)
+    return {"response": reply}
 
 
-# ── User profile ────────────────────────────────────────────────────────
+# ── User profile ──────────────────────────────────────────────────────────────
 
-@app.post("/api/user", dependencies=[Depends(_require_auth)])
-async def create_or_update_user(profile: UserProfile):
-    fields = profile.model_dump(exclude={"user_id"}, exclude_none=True)
-    user = await upsert_user(profile.user_id, **fields)
-    return {"user": user}
+@app.get("/api/profile")
+async def get_profile(user: User = Depends(get_current_user)) -> dict:
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "age": user.age,
+        "height": user.height,
+        "weight": user.weight,
+        "gender": user.gender,
+        "activity": user.activity,
+        "goal": user.goal,
+    }
 
 
-@app.get("/api/user/{user_id}", dependencies=[Depends(_require_auth)])
-async def get_user_profile(user_id: str):
-    user_id = _validated_user_id(user_id)
-    user = await get_user(user_id)
-    if not user:
-        raise HTTPException(404, "User not found")
-    return {"user": user}
+@app.put("/api/profile")
+async def update_profile(
+    body: UserProfileUpdate,
+    user: User = Depends(get_current_user),
+) -> dict:
+    return await upsert_user_profile(user.id, **body.model_dump(exclude_none=True))
 
 
-# ── Web UI ──────────────────────────────────────────────────────────────
+# ── Waitlist ──────────────────────────────────────────────────────────────────
 
-@app.get("/")
-async def serve_ui():
-    index = WEB_DIR / "index.html"
-    if index.exists():
-        return FileResponse(str(index))
-    return {"message": "FitAgent API is running. Web UI not found."}
+@app.post("/api/waitlist")
+async def waitlist_signup(body: WaitlistSignup) -> dict:
+    is_new = await add_to_waitlist(body.email, body.name)
+    return {
+        "success": True,
+        "isNew": is_new,
+        "message": "Вы добавлены в лист ожидания." if is_new else "Вы уже в листе ожидания.",
+    }
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+async def health() -> dict:
+    return {"status": "ok"}

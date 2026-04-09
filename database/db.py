@@ -1,370 +1,428 @@
-"""SQLite database: connection, schema init, CRUD helpers."""
+"""CRUD helpers — async SQLAlchemy.
 
-import aiosqlite
-import os
-from pathlib import Path
+MCP servers call these functions directly (as sub-processes), so every
+function opens its own short-lived session rather than sharing one.
 
-DB_PATH = os.getenv("DB_PATH", str(Path(__file__).parent / "fitness.db"))
-
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS users (
-    id              TEXT PRIMARY KEY,
-    name            TEXT,
-    age             INTEGER,
-    height          REAL,
-    weight          REAL,
-    gender          TEXT CHECK(gender IN ('male', 'female')),
-    activity        TEXT CHECK(activity IN ('sedentary', 'moderate', 'active', 'athlete')),
-    goal            TEXT CHECK(goal IN ('lose', 'maintain', 'gain', 'recomposition')),
-    system_msg_sent INTEGER NOT NULL DEFAULT 0,
-    created_at      TEXT DEFAULT (datetime('now')),
-    updated_at      TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS weight_logs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    weight      REAL NOT NULL,
-    logged_at   TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS exercises (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    muscle_group TEXT NOT NULL,
-    equipment   TEXT,
-    description TEXT
-);
-
-CREATE TABLE IF NOT EXISTS workout_programs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name            TEXT NOT NULL,
-    goal            TEXT,
-    level           TEXT,
-    days_per_week   INTEGER,
-    program_json    TEXT NOT NULL,
-    created_at      TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS workout_logs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    exercise    TEXT NOT NULL,
-    sets        INTEGER NOT NULL,
-    reps        INTEGER NOT NULL,
-    weight_kg   REAL,
-    logged_at   TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS food_products (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    calories    REAL NOT NULL,
-    protein     REAL NOT NULL,
-    fat         REAL NOT NULL,
-    carbs       REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS food_diary (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    product_name TEXT NOT NULL,
-    weight_g    REAL NOT NULL,
-    calories    REAL NOT NULL,
-    protein     REAL NOT NULL,
-    fat         REAL NOT NULL,
-    carbs       REAL NOT NULL,
-    logged_at   TEXT DEFAULT (datetime('now'))
-);
+Fitness user_id convention
+--------------------------
+The LangGraph agent injects ``user_id`` (an integer PK) into the system
+prompt as a string.  MCP tool parameters carry it as ``str``; the helpers
+below convert it to ``int`` before every DB call.
 """
 
+from __future__ import annotations
 
-async def get_db() -> aiosqlite.Connection:
-    db = await aiosqlite.connect(DB_PATH)
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    return db
+from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import delete, func, select, update
 
-async def init_db():
-    db = await get_db()
-    try:
-        await db.executescript(SCHEMA_SQL)
-        await _migrate_system_msg_column(db)
-        await db.commit()
-    finally:
-        await db.close()
-
-
-async def _migrate_system_msg_column(db: aiosqlite.Connection):
-    cursor = await db.execute("PRAGMA table_info(users)")
-    columns = {row[1] for row in await cursor.fetchall()}
-    if "system_msg_sent" in columns:
-        return
-    await db.execute("ALTER TABLE users ADD COLUMN system_msg_sent INTEGER NOT NULL DEFAULT 0")
+from database.engine import AsyncSessionLocal
+from database.models import (
+    Conversation,
+    Exercise,
+    FoodDiary,
+    FoodProduct,
+    Message,
+    User,
+    Waitlist,
+    WeightLog,
+    WorkoutLog,
+    WorkoutProgram,
+)
 
 
-# ── Users ───────────────────────────────────────────────────────────────
+def _uid(user_id: str | int) -> int:
+    return int(user_id)
 
-async def ensure_user(user_id: str):
-    """Create a minimal user record if it doesn't exist yet."""
-    db = await get_db()
-    try:
-        rows = await db.execute_fetchall(
-            "SELECT id FROM users WHERE id = ?", (user_id,)
+
+# ── Users ────────────────────────────────────────────────────────────────────
+
+async def get_or_create_user(
+    google_id: str,
+    email: str | None = None,
+    name: str | None = None,
+    picture: str | None = None,
+) -> User:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.google_id == google_id)
         )
-        if not rows:
-            await db.execute("INSERT INTO users (id) VALUES (?)", (user_id,))
-            await db.commit()
-    finally:
-        await db.close()
+        user = result.scalar_one_or_none()
+        if user:
+            user.email = email or user.email
+            user.name = name or user.name
+            user.picture = picture or user.picture
+            user.updated_at = datetime.utcnow()
+            await session.commit()
+            await session.refresh(user)
+            return user
+
+        user = User(google_id=google_id, email=email, name=name, picture=picture)
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
 
 
-async def has_system_message_flag(user_id: str) -> bool:
-    db = await get_db()
-    try:
-        rows = await db.execute_fetchall(
-            "SELECT system_msg_sent FROM users WHERE id = ?", (user_id,)
+async def get_user_by_google_id(google_id: str) -> User | None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.google_id == google_id)
         )
-        if not rows:
-            return False
-        return bool(rows[0][0])
-    finally:
-        await db.close()
+        return result.scalar_one_or_none()
 
 
-async def set_system_message_flag(user_id: str) -> None:
-    db = await get_db()
-    try:
-        await db.execute(
-            "UPDATE users SET system_msg_sent = 1 WHERE id = ?", (user_id,)
-        )
-        await db.commit()
-    finally:
-        await db.close()
-
-
-async def upsert_user(user_id: str, **fields) -> dict:
-    db = await get_db()
-    try:
-        existing = await db.execute_fetchall(
-            "SELECT * FROM users WHERE id = ?", (user_id,)
-        )
-        if existing:
-            sets = ", ".join(f"{k} = ?" for k in fields)
-            vals = list(fields.values()) + [user_id]
-            await db.execute(
-                f"UPDATE users SET {sets}, updated_at = datetime('now') WHERE id = ?",
-                vals,
-            )
-        else:
-            fields["id"] = user_id
-            cols = ", ".join(fields.keys())
-            placeholders = ", ".join("?" for _ in fields)
-            await db.execute(
-                f"INSERT INTO users ({cols}) VALUES ({placeholders})",
-                list(fields.values()),
-            )
-        await db.commit()
-        row = await db.execute_fetchall(
-            "SELECT * FROM users WHERE id = ?", (user_id,)
-        )
-        return dict(row[0]) if row else {}
-    finally:
-        await db.close()
+async def get_user_by_id(user_id: int) -> User | None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        return result.scalar_one_or_none()
 
 
 async def get_user(user_id: str) -> dict | None:
-    db = await get_db()
-    try:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM users WHERE id = ?", (user_id,)
-        )
-        return dict(rows[0]) if rows else None
-    finally:
-        await db.close()
+    """Compat helper used by MCP nutrition server."""
+    user = await get_user_by_id(_uid(user_id))
+    if not user:
+        return None
+    return {
+        "id": user.id,
+        "name": user.name,
+        "age": user.age,
+        "height": user.height,
+        "weight": user.weight,
+        "gender": user.gender,
+        "activity": user.activity,
+        "goal": user.goal,
+    }
 
 
-# ── Weight ──────────────────────────────────────────────────────────────
+async def upsert_user_profile(user_id: int, **fields) -> dict:
+    allowed = {"name", "age", "height", "weight", "gender", "activity", "goal"}
+    filtered = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    async with AsyncSessionLocal() as session:
+        if filtered:
+            await session.execute(
+                update(User).where(User.id == user_id).values(**filtered, updated_at=datetime.utcnow())
+            )
+            await session.commit()
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one()
+        return {
+            "id": user.id,
+            "name": user.name,
+            "age": user.age,
+            "height": user.height,
+            "weight": user.weight,
+            "gender": user.gender,
+            "activity": user.activity,
+            "goal": user.goal,
+        }
 
-async def log_weight(user_id: str, weight: float):
-    db = await get_db()
-    try:
-        await db.execute(
-            "INSERT INTO weight_logs (user_id, weight) VALUES (?, ?)",
-            (user_id, weight),
+
+# ── Weight ───────────────────────────────────────────────────────────────────
+
+async def log_weight(user_id: str, weight: float) -> None:
+    uid = _uid(user_id)
+    async with AsyncSessionLocal() as session:
+        session.add(WeightLog(user_id=uid, weight=weight))
+        # Keep profile weight in sync
+        await session.execute(
+            update(User).where(User.id == uid).values(weight=weight, updated_at=datetime.utcnow())
         )
-        await db.execute(
-            "UPDATE users SET weight = ?, updated_at = datetime('now') WHERE id = ?",
-            (weight, user_id),
-        )
-        await db.commit()
-    finally:
-        await db.close()
+        await session.commit()
 
 
 async def get_weight_history(user_id: str, days: int = 30) -> list[dict]:
-    db = await get_db()
-    try:
-        rows = await db.execute_fetchall(
-            """SELECT weight, logged_at FROM weight_logs
-               WHERE user_id = ? AND logged_at >= datetime('now', ?)
-               ORDER BY logged_at DESC""",
-            (user_id, f"-{days} days"),
+    uid = _uid(user_id)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(WeightLog)
+            .where(WeightLog.user_id == uid, WeightLog.logged_at >= since)
+            .order_by(WeightLog.logged_at.desc())
         )
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+        return [
+            {"weight": row.weight, "logged_at": row.logged_at.isoformat()}
+            for row in result.scalars()
+        ]
 
 
-# ── Exercises ───────────────────────────────────────────────────────────
+# ── Exercises ────────────────────────────────────────────────────────────────
 
 async def get_exercises(muscle_group: str | None = None) -> list[dict]:
-    db = await get_db()
-    try:
+    async with AsyncSessionLocal() as session:
+        q = select(Exercise)
         if muscle_group:
-            rows = await db.execute_fetchall(
-                "SELECT * FROM exercises WHERE muscle_group = ?",
-                (muscle_group,),
-            )
-        else:
-            rows = await db.execute_fetchall("SELECT * FROM exercises")
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+            q = q.where(Exercise.muscle_group == muscle_group)
+        result = await session.execute(q)
+        return [
+            {
+                "id": e.id,
+                "name": e.name,
+                "muscle_group": e.muscle_group,
+                "equipment": e.equipment,
+                "description": e.description,
+            }
+            for e in result.scalars()
+        ]
 
 
-# ── Workout programs ───────────────────────────────────────────────────
+# ── Workout programs ─────────────────────────────────────────────────────────
 
-async def save_workout_program(user_id: str, name: str, goal: str,
-                                level: str, days: int, program_json: str) -> int:
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            """INSERT INTO workout_programs
-               (user_id, name, goal, level, days_per_week, program_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, name, goal, level, days, program_json),
+async def save_workout_program(
+    user_id: str, name: str, goal: str, level: str, days: int, program_json: str
+) -> int:
+    uid = _uid(user_id)
+    async with AsyncSessionLocal() as session:
+        prog = WorkoutProgram(
+            user_id=uid, name=name, goal=goal,
+            level=level, days_per_week=days, program_json=program_json,
         )
-        await db.commit()
-        return cursor.lastrowid
-    finally:
-        await db.close()
+        session.add(prog)
+        await session.commit()
+        await session.refresh(prog)
+        return prog.id
 
 
 async def get_workout_programs(user_id: str) -> list[dict]:
-    db = await get_db()
-    try:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM workout_programs WHERE user_id = ? ORDER BY created_at DESC",
-            (user_id,),
+    uid = _uid(user_id)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(WorkoutProgram)
+            .where(WorkoutProgram.user_id == uid)
+            .order_by(WorkoutProgram.created_at.desc())
         )
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "goal": p.goal,
+                "level": p.level,
+                "days_per_week": p.days_per_week,
+                "program_json": p.program_json,
+                "created_at": p.created_at.isoformat(),
+            }
+            for p in result.scalars()
+        ]
 
 
-# ── Workout logs ────────────────────────────────────────────────────────
+# ── Workout logs ─────────────────────────────────────────────────────────────
 
-async def log_workout(user_id: str, exercise: str, sets: int,
-                       reps: int, weight_kg: float | None = None):
-    db = await get_db()
-    try:
-        await db.execute(
-            """INSERT INTO workout_logs (user_id, exercise, sets, reps, weight_kg)
-               VALUES (?, ?, ?, ?, ?)""",
-            (user_id, exercise, sets, reps, weight_kg),
-        )
-        await db.commit()
-    finally:
-        await db.close()
+async def log_workout(
+    user_id: str, exercise: str, sets: int, reps: int, weight_kg: float | None = None
+) -> None:
+    uid = _uid(user_id)
+    async with AsyncSessionLocal() as session:
+        session.add(WorkoutLog(
+            user_id=uid, exercise=exercise, sets=sets, reps=reps, weight_kg=weight_kg
+        ))
+        await session.commit()
 
 
 async def get_workout_logs(user_id: str, date: str | None = None) -> list[dict]:
-    db = await get_db()
-    try:
+    uid = _uid(user_id)
+    async with AsyncSessionLocal() as session:
+        q = select(WorkoutLog).where(WorkoutLog.user_id == uid)
         if date:
-            rows = await db.execute_fetchall(
-                """SELECT * FROM workout_logs
-                   WHERE user_id = ? AND date(logged_at) = ?
-                   ORDER BY logged_at DESC""",
-                (user_id, date),
-            )
-        else:
-            rows = await db.execute_fetchall(
-                """SELECT * FROM workout_logs
-                   WHERE user_id = ? ORDER BY logged_at DESC LIMIT 50""",
-                (user_id,),
-            )
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+            day = datetime.strptime(date, "%Y-%m-%d").date()
+            q = q.where(func.date(WorkoutLog.logged_at) == day)
+        q = q.order_by(WorkoutLog.logged_at.desc()).limit(50)
+        result = await session.execute(q)
+        return [
+            {
+                "id": w.id,
+                "exercise": w.exercise,
+                "sets": w.sets,
+                "reps": w.reps,
+                "weight_kg": w.weight_kg,
+                "logged_at": w.logged_at.isoformat(),
+            }
+            for w in result.scalars()
+        ]
 
 
-# ── Food products ───────────────────────────────────────────────────────
+# ── Food products ─────────────────────────────────────────────────────────────
 
 async def search_food(query: str) -> list[dict]:
-    db = await get_db()
-    try:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM food_products WHERE name LIKE ?",
-            (f"%{query}%",),
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(FoodProduct).where(FoodProduct.name.ilike(f"%{query}%"))
         )
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "calories": p.calories,
+                "protein": p.protein,
+                "fat": p.fat,
+                "carbs": p.carbs,
+            }
+            for p in result.scalars()
+        ]
 
 
-# ── Food diary ──────────────────────────────────────────────────────────
+# ── Food diary ────────────────────────────────────────────────────────────────
 
-async def log_meal(user_id: str, product_name: str, weight_g: float,
-                    calories: float, protein: float, fat: float, carbs: float):
-    db = await get_db()
-    try:
-        await db.execute(
-            """INSERT INTO food_diary
-               (user_id, product_name, weight_g, calories, protein, fat, carbs)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, product_name, weight_g, calories, protein, fat, carbs),
-        )
-        await db.commit()
-    finally:
-        await db.close()
+async def log_meal(
+    user_id: str, product_name: str, weight_g: float,
+    calories: float, protein: float, fat: float, carbs: float,
+) -> None:
+    uid = _uid(user_id)
+    async with AsyncSessionLocal() as session:
+        session.add(FoodDiary(
+            user_id=uid, product_name=product_name, weight_g=weight_g,
+            calories=calories, protein=protein, fat=fat, carbs=carbs,
+        ))
+        await session.commit()
 
 
 async def get_food_diary(user_id: str, date: str | None = None) -> list[dict]:
-    db = await get_db()
-    try:
-        target = date or "date('now')"
+    uid = _uid(user_id)
+    async with AsyncSessionLocal() as session:
+        q = select(FoodDiary).where(FoodDiary.user_id == uid)
         if date:
-            rows = await db.execute_fetchall(
-                """SELECT * FROM food_diary
-                   WHERE user_id = ? AND date(logged_at) = ?
-                   ORDER BY logged_at""",
-                (user_id, date),
-            )
+            day = datetime.strptime(date, "%Y-%m-%d").date()
+            q = q.where(func.date(FoodDiary.logged_at) == day)
         else:
-            rows = await db.execute_fetchall(
-                """SELECT * FROM food_diary
-                   WHERE user_id = ? AND date(logged_at) = date('now')
-                   ORDER BY logged_at""",
-                (user_id,),
-            )
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+            today = datetime.utcnow().date()
+            q = q.where(func.date(FoodDiary.logged_at) == today)
+        result = await session.execute(q.order_by(FoodDiary.logged_at))
+        return [
+            {
+                "id": e.id,
+                "product_name": e.product_name,
+                "weight_g": e.weight_g,
+                "calories": e.calories,
+                "protein": e.protein,
+                "fat": e.fat,
+                "carbs": e.carbs,
+                "logged_at": e.logged_at.isoformat(),
+            }
+            for e in result.scalars()
+        ]
 
 
 async def get_daily_summary(user_id: str, date: str | None = None) -> dict:
     entries = await get_food_diary(user_id, date)
-    totals = {"calories": 0, "protein": 0, "fat": 0, "carbs": 0, "meals": len(entries)}
+    totals: dict[str, float | int] = {"calories": 0.0, "protein": 0.0, "fat": 0.0, "carbs": 0.0, "meals": len(entries)}
     for e in entries:
         totals["calories"] += e["calories"]
         totals["protein"] += e["protein"]
         totals["fat"] += e["fat"]
         totals["carbs"] += e["carbs"]
     for k in ("calories", "protein", "fat", "carbs"):
-        totals[k] = round(totals[k], 1)
+        totals[k] = round(float(totals[k]), 1)
     return totals
+
+
+# ── Conversations & messages ──────────────────────────────────────────────────
+
+async def create_conversation(user_id: int, title: str = "Новый чат") -> Conversation:
+    async with AsyncSessionLocal() as session:
+        conv = Conversation(user_id=user_id, title=title)
+        session.add(conv)
+        await session.commit()
+        await session.refresh(conv)
+        return conv
+
+
+async def get_conversations(user_id: int) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Conversation)
+            .where(Conversation.user_id == user_id)
+            .order_by(Conversation.updated_at.desc())
+        )
+        return [
+            {
+                "id": c.id,
+                "title": c.title,
+                "created_at": c.created_at.isoformat(),
+                "updated_at": c.updated_at.isoformat(),
+            }
+            for c in result.scalars()
+        ]
+
+
+async def get_conversation(conversation_id: int, user_id: int) -> Conversation | None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+
+async def get_messages(conversation_id: int) -> list[dict]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at)
+        )
+        return [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in result.scalars()
+        ]
+
+
+async def add_message(conversation_id: int, role: str, content: str) -> Message:
+    async with AsyncSessionLocal() as session:
+        msg = Message(conversation_id=conversation_id, role=role, content=content)
+        session.add(msg)
+        # Touch updated_at on conversation
+        await session.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(updated_at=datetime.utcnow())
+        )
+        await session.commit()
+        await session.refresh(msg)
+        return msg
+
+
+async def get_and_set_system_msg_flag(conversation_id: int) -> bool:
+    """Return True if system message was NOT yet sent (first message); atomically sets the flag."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Conversation).where(Conversation.id == conversation_id)
+        )
+        conv = result.scalar_one_or_none()
+        if not conv:
+            return False
+        if conv.system_msg_sent:
+            return False
+        conv.system_msg_sent = True
+        await session.commit()
+        return True
+
+
+async def update_conversation_title(conversation_id: int, title: str) -> None:
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(title=title)
+        )
+        await session.commit()
+
+
+# ── Waitlist ──────────────────────────────────────────────────────────────────
+
+async def add_to_waitlist(email: str, name: str | None = None) -> bool:
+    """Returns True if newly added, False if already present."""
+    async with AsyncSessionLocal() as session:
+        existing = await session.execute(
+            select(Waitlist).where(Waitlist.email == email)
+        )
+        if existing.scalar_one_or_none():
+            return False
+        session.add(Waitlist(email=email, name=name))
+        await session.commit()
+        return True
