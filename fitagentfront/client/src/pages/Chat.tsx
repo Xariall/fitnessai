@@ -1,11 +1,40 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect, useRef } from "react";
-import { Send, Plus, MessageSquare, ArrowLeft } from "lucide-react";
+import { Send, Plus, MessageSquare, ArrowLeft, Home, HelpCircle, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+
+const DOCKER_STEPS = [
+  {
+    label: "1. Copy example env and fill in your keys",
+    cmd: "cp .env.example .env",
+  },
+  {
+    label: "2. Build and start all services",
+    cmd: "docker compose up --build -d",
+  },
+  {
+    label: "3. Verify services are running",
+    cmd: "docker compose ps",
+  },
+  {
+    label: "4. Check API health",
+    cmd: "curl http://localhost:8000/api/health",
+  },
+  {
+    label: "5. View logs",
+    cmd: "docker compose logs -f api",
+  },
+];
 
 export default function Chat() {
   const { user, isAuthenticated } = useAuth();
@@ -13,7 +42,16 @@ export default function Chat() {
   const [selectedConversation, setSelectedConversation] = useState<number | null>(null);
   const [messageInput, setMessageInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleExit = () => navigate("/");
+
+  const handleCopy = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 1500);
+  };
 
   // Queries
   const conversations = trpc.chat.getConversations.useQuery(undefined, {
@@ -127,10 +165,78 @@ export default function Chat() {
           ))}
         </div>
 
-        {/* User Info */}
-        <div className="p-4 border-t border-white/10">
-          <div className="text-sm text-muted-sm">
-            <p className="truncate">{user?.name || user?.email}</p>
+        {/* Sidebar Footer: user info + actions */}
+        <div className="p-4 border-t border-white/10 space-y-3">
+          {/* User name */}
+          <p className="text-xs text-muted-sm truncate">{user?.name || user?.email}</p>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-2">
+            {/* Exit → home */}
+            <button
+              onClick={handleExit}
+              title="Back to home"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-200"
+            >
+              <Home size={15} />
+              Exit
+            </button>
+
+            {/* Docker setup dialog */}
+            <Dialog>
+              <DialogTrigger asChild>
+                <button
+                  title="Docker setup instructions"
+                  className="p-2 rounded-lg text-white/50 hover:text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-200"
+                >
+                  <HelpCircle size={15} />
+                </button>
+              </DialogTrigger>
+
+              <DialogContent className="bg-gray-900/95 border-white/10 text-white max-w-lg">
+                <DialogHeader>
+                  <DialogTitle className="text-white flex items-center gap-2">
+                    🐳 Docker Setup
+                  </DialogTitle>
+                </DialogHeader>
+
+                <p className="text-sm text-white/60 mb-4">
+                  Run FitAgent locally with Docker Compose — three commands get you
+                  a fully working stack (PostgreSQL · FastAPI · React).
+                </p>
+
+                <div className="space-y-3">
+                  {DOCKER_STEPS.map((step, i) => (
+                    <div key={i} className="space-y-1">
+                      <p className="text-xs text-white/50">{step.label}</p>
+                      <div className="flex items-center gap-2 bg-black/40 rounded-lg px-3 py-2 border border-white/10">
+                        <code className="flex-1 text-sm text-green-400 font-mono">
+                          {step.cmd}
+                        </code>
+                        <button
+                          onClick={() => handleCopy(step.cmd, i)}
+                          className="text-white/40 hover:text-white/80 transition-colors flex-shrink-0"
+                          title="Copy command"
+                        >
+                          {copiedIndex === i ? (
+                            <Check size={14} className="text-green-400" />
+                          ) : (
+                            <Copy size={14} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                  <p className="text-xs text-purple-300">
+                    <strong>Requires:</strong> Docker Desktop, a Gemini API key, and Google OAuth credentials.
+                    Copy <code className="bg-black/30 px-1 rounded">.env.example → .env</code> and fill in the values before running.
+                  </p>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </div>
