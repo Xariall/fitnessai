@@ -162,13 +162,16 @@ async def analyze_food_photo(image_base64: str, weight_grams: float) -> str:
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
     image_data = base64.b64encode(image_bytes).decode()
 
-    response = client.models.generate_content(
-        model=model_name,
-        contents=[
-            {"inline_data": {"mime_type": "image/jpeg", "data": image_data}},
-            _food_photo_prompt(weight_grams),
-        ],
-    )
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=[
+                {"inline_data": {"mime_type": "image/jpeg", "data": image_data}},
+                _food_photo_prompt(weight_grams),
+            ],
+        )
+    except Exception as e:
+        return json.dumps({"error": f"Ошибка анализа фото: {e}"}, ensure_ascii=False)
     return _parse_json_response(response.text, "Не удалось распознать еду на фото")
 
 
@@ -265,8 +268,11 @@ async def generate_workout_plan(goal: str, level: str, days_per_week: int) -> st
 
     client = _get_client()
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
-    response = client.models.generate_content(
-        model=model_name,
-        contents=_workout_prompt(goal, level, days_per_week),
-    )
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=_workout_prompt(goal, level, days_per_week),
+        )
+    except Exception as e:
+        return json.dumps({"error": f"Ошибка генерации программы: {e}"}, ensure_ascii=False)
     return _parse_json_response(response.text, "Не удалось сгенерировать программу")

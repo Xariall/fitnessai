@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph, MessagesState, START
@@ -47,7 +49,11 @@ async def get_graph():
         return _graph
 
     _client = MultiServerMCPClient(_build_mcp_config())
-    mcp_tools = await _client.get_tools()
+    try:
+        mcp_tools = await _client.get_tools()
+    except Exception:
+        logger.exception("Failed to load MCP tools; falling back to custom tools only")
+        mcp_tools = []
     all_tools = mcp_tools + CUSTOM_TOOLS
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
@@ -81,5 +87,5 @@ async def cleanup():
         try:
             await _client.__aexit__(None, None, None)
         except Exception:
-            pass
+            logger.warning("Error during MCP client cleanup", exc_info=True)
         _client = None

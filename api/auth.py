@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+assert JWT_SECRET != "change-me-in-production", "JWT_SECRET env var must be set to a secure value"
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_DAYS = 30
 
@@ -126,33 +127,36 @@ async def google_callback(
         return RedirectResponse(url=f"{frontend_url}/?error={error}")
 
     # Exchange authorization code for tokens
-    async with httpx.AsyncClient() as client:
-        token_resp = await client.post(
-            GOOGLE_TOKEN_URL,
-            data={
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri,
-            },
-        )
-        if token_resp.status_code != 200:
-            return RedirectResponse(url=f"{frontend_url}/?error=token_exchange_failed")
+    try:
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.post(
+                GOOGLE_TOKEN_URL,
+                data={
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                },
+            )
+            if token_resp.status_code != 200:
+                return RedirectResponse(url=f"{frontend_url}/?error=token_exchange_failed")
 
-        access_token = token_resp.json().get("access_token")
-        if not access_token:
-            return RedirectResponse(url=f"{frontend_url}/?error=no_access_token")
+            access_token = token_resp.json().get("access_token")
+            if not access_token:
+                return RedirectResponse(url=f"{frontend_url}/?error=no_access_token")
 
-        # Fetch user info from Google
-        user_resp = await client.get(
-            GOOGLE_USERINFO_URL,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        if user_resp.status_code != 200:
-            return RedirectResponse(url=f"{frontend_url}/?error=userinfo_failed")
+            # Fetch user info from Google
+            user_resp = await client.get(
+                GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if user_resp.status_code != 200:
+                return RedirectResponse(url=f"{frontend_url}/?error=userinfo_failed")
 
-        info = user_resp.json()
+            info = user_resp.json()
+    except httpx.RequestError:
+        return RedirectResponse(url=f"{frontend_url}/?error=network_error")
 
     google_id = info.get("sub")
     if not google_id:

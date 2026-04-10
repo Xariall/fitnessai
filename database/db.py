@@ -105,7 +105,10 @@ async def upsert_user_profile(user_id: int, **fields) -> dict:
             )
             await session.commit()
         result = await session.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one()
+        user = result.scalar_one_or_none()
+        if not user:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="User not found")
         return {
             "id": user.id,
             "name": user.name,
@@ -223,7 +226,11 @@ async def get_workout_logs(user_id: str, date: str | None = None) -> list[dict]:
     async with AsyncSessionLocal() as session:
         q = select(WorkoutLog).where(WorkoutLog.user_id == uid)
         if date:
-            day = datetime.strptime(date, "%Y-%m-%d").date()
+            try:
+                day = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
             q = q.where(func.date(WorkoutLog.logged_at) == day)
         q = q.order_by(WorkoutLog.logged_at.desc()).limit(50)
         result = await session.execute(q)
@@ -280,7 +287,11 @@ async def get_food_diary(user_id: str, date: str | None = None) -> list[dict]:
     async with AsyncSessionLocal() as session:
         q = select(FoodDiary).where(FoodDiary.user_id == uid)
         if date:
-            day = datetime.strptime(date, "%Y-%m-%d").date()
+            try:
+                day = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
             q = q.where(func.date(FoodDiary.logged_at) == day)
         else:
             today = datetime.utcnow().date()
