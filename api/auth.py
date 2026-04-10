@@ -105,6 +105,16 @@ OptionalUser = Annotated[User | None, Depends(
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 
+@router.get("/debug-redirect")
+async def debug_redirect_uri() -> dict:
+    """Temporary: shows the exact redirect_uri being sent to Google."""
+    return {
+        "redirect_uri": _get_redirect_uri(),
+        "GOOGLE_REDIRECT_URI_env": os.getenv("GOOGLE_REDIRECT_URI", "(not set)"),
+        "FASTAPI_BASE_URL_env": os.getenv("FASTAPI_BASE_URL", "(not set)"),
+    }
+
+
 @router.get("/google")
 async def google_login() -> RedirectResponse:
     """Initiate Google OAuth flow."""
@@ -181,18 +191,10 @@ async def google_callback(
     token = create_jwt(user)
     logger.info("auth: user_id=%s authenticated via Google OAuth", user.id)
 
-    # Set httpOnly cookie directly on the redirect response.
-    # SameSite=None + Secure is required for cross-domain use (Vercel → Railway).
-    response = RedirectResponse(url=f"{frontend_url}/")
-    response.set_cookie(
-        key="session_token",
-        value=token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        max_age=JWT_EXPIRE_DAYS * 24 * 3600,
-    )
-    return response
+    # Redirect to the Express /api/oauth/finish route on the frontend.
+    # Express receives the token via query param, sets the httpOnly cookie
+    # on the Vercel domain, then redirects the user to home.
+    return RedirectResponse(url=f"{frontend_url}/api/oauth/finish?token={token}")
 
 
 @router.get("/me")
@@ -214,11 +216,7 @@ async def me(user: User = Depends(get_current_user)) -> dict:
 
 @router.post("/logout")
 async def logout() -> JSONResponse:
-    response = JSONResponse({"success": True})
-    response.delete_cookie(
-        key="session_token",
-        httponly=True,
-        secure=True,
-        samesite="none",
-    )
-    return response
+    # Cookie is managed by Vercel Express (set in /api/oauth/finish).
+    # Real logout happens via tRPC auth.logout which calls res.clearCookie.
+    # This endpoint exists as a no-op fallback for direct API calls.
+    return JSONResponse({"success": True})
