@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -50,3 +52,36 @@ class WaitlistSignup(BaseModel):
 
 class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=255)
+
+
+# ── Read schemas (responses) ──────────────────────────────────────────────────
+
+class UserProfile(BaseModel):
+    id: int
+    email: str | None
+    name: str | None
+    picture: str | None
+    age: int | None
+    height: float | None
+    weight: float | None
+    gender: str | None
+    activity: str | None
+    goal: str | None
+
+
+class ConversationResponse(BaseModel):
+    id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class MessageResponse(BaseModel):
+    id: int
+    role: str          # "user" | "assistant"
+    content: str
+    created_at: datetime
+
+
+class ChatResponse(BaseModel):
+    response: str

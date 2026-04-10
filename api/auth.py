@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -14,6 +15,8 @@ from jose import JWTError, jwt
 
 from database.db import get_or_create_user, get_user_by_id
 from database.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -76,15 +79,21 @@ async def get_current_user(
     session_token: Annotated[str | None, Cookie(alias="session_token")] = None,
 ) -> User:
     if not session_token:
+        logger.warning("auth: missing session_token cookie")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
         payload = decode_jwt(session_token)
         user_id = int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
+    except JWTError as e:
+        logger.warning("auth: JWT validation failed — %s", e)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except (KeyError, ValueError) as e:
+        logger.warning("auth: malformed token payload — %s", e)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     user = await get_user_by_id(user_id)
     if not user:
+        logger.warning("auth: user_id=%s not found in DB (token valid but user deleted?)", user_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
 
@@ -170,9 +179,20 @@ async def google_callback(
     )
 
     token = create_jwt(user)
+    logger.info("auth: user_id=%s authenticated via Google OAuth", user.id)
 
-    # Pass JWT to frontend via query param; Express will set the httpOnly cookie
-    return RedirectResponse(url=f"{frontend_url}/api/oauth/finish?token={token}")
+    # Set httpOnly cookie directly on the redirect response.
+    # SameSite=None + Secure is required for cross-domain use (Vercel → Railway).
+    response = RedirectResponse(url=f"{frontend_url}/")
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=JWT_EXPIRE_DAYS * 24 * 3600,
+    )
+    return response
 
 
 @router.get("/me")
@@ -195,5 +215,10 @@ async def me(user: User = Depends(get_current_user)) -> dict:
 @router.post("/logout")
 async def logout() -> JSONResponse:
     response = JSONResponse({"success": True})
-    response.delete_cookie("session_token")
+    response.delete_cookie(
+        key="session_token",
+        httponly=True,
+        secure=True,
+        samesite="none",
+    )
     return response
