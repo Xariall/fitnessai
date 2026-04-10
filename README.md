@@ -73,6 +73,85 @@ Open **http://localhost:3000** in your browser.
 
 ---
 
+## Deploy to Vercel (Frontend)
+
+> **Why only the frontend?**
+> The FastAPI backend runs a stateful LangGraph agent with MCP server connections and ChromaDB.
+> Vercel's serverless functions have a 60 s timeout and no persistent process — not suitable
+> for long-running AI calls. Deploy FastAPI separately (Railway, Render, or fly.io).
+
+### Architecture on Vercel
+
+```
+Vercel CDN  →  dist/public/     (React SPA — static)
+Vercel Fn   →  api/index.ts     (Express: tRPC + OAuth routes)
+                   ↓
+          FastAPI on Railway / Render / fly.io
+                   ↓
+             PostgreSQL (Neon / Supabase / Railway)
+```
+
+### 1. Deploy FastAPI first
+
+Choose a platform that supports Docker or Python:
+
+```bash
+# Example: Railway
+railway up          # from the project root (uses Dockerfile + entrypoint.sh)
+
+# After deploy, note your service URL, e.g.:
+# https://fitnessai-api.railway.app
+```
+
+Update your **Google OAuth credentials** — add the new callback URI:
+```
+https://fitnessai-api.railway.app/api/auth/callback
+```
+
+### 2. Import fitagentfront to Vercel
+
+```bash
+# Install Vercel CLI (once)
+npm i -g vercel
+
+cd fitagentfront
+vercel
+```
+
+Or connect via [vercel.com/new](https://vercel.com/new) → import the repo,
+set **Root Directory** to `fitagentfront`.
+
+Vercel auto-detects `vercel.json` and runs `pnpm run build:client`.
+
+### 3. Set environment variables in Vercel dashboard
+
+Go to **Project → Settings → Environment Variables** and add:
+
+| Variable | Value |
+|----------|-------|
+| `FASTAPI_URL` | `https://your-api.railway.app` |
+| `FASTAPI_BASE_URL` | `https://your-api.railway.app` |
+| `JWT_SECRET` | same value as the FastAPI `JWT_SECRET` |
+| `FRONTEND_URL` | `https://your-app.vercel.app` |
+
+> `NODE_ENV` is set to `production` automatically by Vercel.
+
+### 4. Update FastAPI environment
+
+Add to your backend deployment (Railway/Render):
+
+```
+FRONTEND_URL=https://your-app.vercel.app
+ALLOWED_ORIGINS=https://your-app.vercel.app
+```
+
+Also add the Google OAuth callback:
+```
+https://your-api.railway.app/api/auth/callback
+```
+
+---
+
 ## Local Development (without Docker)
 
 ### FastAPI

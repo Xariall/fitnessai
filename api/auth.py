@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, status
@@ -24,14 +25,29 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_DAYS = 30
 
-FASTAPI_BASE_URL = os.getenv("FASTAPI_BASE_URL", "http://localhost:8000")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
-
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
-_GOOGLE_REDIRECT_URI = f"{FASTAPI_BASE_URL}/api/auth/callback"
+
+def _get_redirect_uri() -> str:
+    """
+    Resolve the Google OAuth callback URI at request time.
+
+    Priority:
+      1. GOOGLE_REDIRECT_URI  — explicit full URI (recommended for production)
+      2. FASTAPI_BASE_URL     — auto-appends /api/auth/callback
+      3. Fallback to localhost
+    """
+    explicit = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
+    if explicit:
+        return explicit
+    base = os.getenv("FASTAPI_BASE_URL", "http://localhost:8000").rstrip("/")
+    return f"{base}/api/auth/callback"
+
+
+def _get_frontend_url() -> str:
+    return os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
 # ── JWT helpers ──────────────────────────────────────────────────────────────
 
@@ -85,16 +101,16 @@ async def google_login() -> RedirectResponse:
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID is not configured")
 
+    redirect_uri = _get_redirect_uri()
     params = {
         "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": _GOOGLE_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
         "access_type": "offline",
         "prompt": "select_account",
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return RedirectResponse(url=f"{GOOGLE_AUTH_URL}?{query}")
+    return RedirectResponse(url=f"{GOOGLE_AUTH_URL}?{urlencode(params)}")
 
 
 @router.get("/callback")
@@ -103,8 +119,11 @@ async def google_callback(
     error: str | None = Query(default=None),
 ) -> RedirectResponse:
     """Handle Google OAuth callback, set JWT cookie, redirect to frontend."""
+    frontend_url = _get_frontend_url()
+    redirect_uri = _get_redirect_uri()
+
     if error:
-        return RedirectResponse(url=f"{FRONTEND_URL}/?error={error}")
+        return RedirectResponse(url=f"{frontend_url}/?error={error}")
 
     # Exchange authorization code for tokens
     async with httpx.AsyncClient() as client:
@@ -115,15 +134,15 @@ async def google_callback(
                 "client_secret": GOOGLE_CLIENT_SECRET,
                 "code": code,
                 "grant_type": "authorization_code",
-                "redirect_uri": _GOOGLE_REDIRECT_URI,
+                "redirect_uri": redirect_uri,
             },
         )
         if token_resp.status_code != 200:
-            return RedirectResponse(url=f"{FRONTEND_URL}/?error=token_exchange_failed")
+            return RedirectResponse(url=f"{frontend_url}/?error=token_exchange_failed")
 
         access_token = token_resp.json().get("access_token")
         if not access_token:
-            return RedirectResponse(url=f"{FRONTEND_URL}/?error=no_access_token")
+            return RedirectResponse(url=f"{frontend_url}/?error=no_access_token")
 
         # Fetch user info from Google
         user_resp = await client.get(
@@ -131,13 +150,13 @@ async def google_callback(
             headers={"Authorization": f"Bearer {access_token}"},
         )
         if user_resp.status_code != 200:
-            return RedirectResponse(url=f"{FRONTEND_URL}/?error=userinfo_failed")
+            return RedirectResponse(url=f"{frontend_url}/?error=userinfo_failed")
 
         info = user_resp.json()
 
     google_id = info.get("sub")
     if not google_id:
-        return RedirectResponse(url=f"{FRONTEND_URL}/?error=missing_sub")
+        return RedirectResponse(url=f"{frontend_url}/?error=missing_sub")
 
     user = await get_or_create_user(
         google_id=google_id,
@@ -149,8 +168,7 @@ async def google_callback(
     token = create_jwt(user)
 
     # Pass JWT to frontend via query param; Express will set the httpOnly cookie
-    redirect = RedirectResponse(url=f"{FRONTEND_URL}/api/oauth/finish?token={token}")
-    return redirect
+    return RedirectResponse(url=f"{frontend_url}/api/oauth/finish?token={token}")
 
 
 @router.get("/me")
