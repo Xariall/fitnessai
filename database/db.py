@@ -14,6 +14,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
 from sqlalchemy import delete, func, select, update
 
 from database.engine import AsyncSessionLocal
@@ -52,7 +55,7 @@ async def get_or_create_user(
             user.email = email or user.email
             user.name = name or user.name
             user.picture = picture or user.picture
-            user.updated_at = datetime.utcnow()
+            user.updated_at = _now()
             await session.commit()
             await session.refresh(user)
             return user
@@ -101,7 +104,7 @@ async def upsert_user_profile(user_id: int, **fields) -> dict:
     async with AsyncSessionLocal() as session:
         if filtered:
             await session.execute(
-                update(User).where(User.id == user_id).values(**filtered, updated_at=datetime.utcnow())
+                update(User).where(User.id == user_id).values(**filtered, updated_at=_now())
             )
             await session.commit()
         result = await session.execute(select(User).where(User.id == user_id))
@@ -129,7 +132,7 @@ async def log_weight(user_id: str, weight: float) -> None:
         session.add(WeightLog(user_id=uid, weight=weight))
         # Keep profile weight in sync
         await session.execute(
-            update(User).where(User.id == uid).values(weight=weight, updated_at=datetime.utcnow())
+            update(User).where(User.id == uid).values(weight=weight, updated_at=_now())
         )
         await session.commit()
 
@@ -294,7 +297,7 @@ async def get_food_diary(user_id: str, date: str | None = None) -> list[dict]:
                 raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
             q = q.where(func.date(FoodDiary.logged_at) == day)
         else:
-            today = datetime.utcnow().date()
+            today = _now().date()
             q = q.where(func.date(FoodDiary.logged_at) == today)
         result = await session.execute(q.order_by(FoodDiary.logged_at))
         return [
@@ -391,7 +394,7 @@ async def add_message(conversation_id: int, role: str, content: str) -> Message:
         await session.execute(
             update(Conversation)
             .where(Conversation.id == conversation_id)
-            .values(updated_at=datetime.utcnow())
+            .values(updated_at=_now())
         )
         await session.commit()
         await session.refresh(msg)

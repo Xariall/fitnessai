@@ -14,11 +14,21 @@ import sys
 
 import asyncpg
 
+from database.engine import _async_db_url
+
+
+def _get_db_url() -> str:
+    raw = os.getenv("DATABASE_URL")
+    if not raw:
+        print("ERROR: DATABASE_URL is not set. Add a Postgres plugin in Railway.", file=sys.stderr)
+        sys.exit(1)
+    return raw
+
 
 async def inspect_db() -> tuple[bool, bool]:
-    raw = os.environ["DATABASE_URL"]
-    # Normalize to plain postgresql:// for asyncpg.connect (strips driver prefix)
-    url = raw.replace("postgresql+asyncpg://", "postgresql://").replace("postgres://", "postgresql://")
+    raw = _get_db_url()
+    # asyncpg.connect needs plain postgresql:// (no driver prefix)
+    url = _async_db_url(raw).replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(url)
     try:
         has_alembic = bool(
