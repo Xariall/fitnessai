@@ -16,7 +16,9 @@ import asyncpg
 
 
 async def inspect_db() -> tuple[bool, bool]:
-    url = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://")
+    raw = os.environ["DATABASE_URL"]
+    # Normalize to plain postgresql:// for asyncpg.connect (strips driver prefix)
+    url = raw.replace("postgresql+asyncpg://", "postgresql://").replace("postgres://", "postgresql://")
     conn = await asyncpg.connect(url)
     try:
         has_alembic = bool(

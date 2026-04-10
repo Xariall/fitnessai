@@ -14,10 +14,17 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-DATABASE_URL = os.getenv(
+def _async_db_url(raw: str) -> str:
+    raw = raw.replace("postgres://", "postgresql://", 1)
+    if not raw.startswith("postgresql+asyncpg://"):
+        raw = raw.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return raw
+
+
+DATABASE_URL = _async_db_url(os.getenv(
     "DATABASE_URL",
     config.get_main_option("sqlalchemy.url", ""),
-)
+))
 
 
 def run_migrations_offline() -> None:
