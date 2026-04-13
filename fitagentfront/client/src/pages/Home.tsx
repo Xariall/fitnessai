@@ -5,7 +5,13 @@ import { toast } from "sonner";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect } from "react";
-import { ChevronRight, TrendingUp, Clock, Target, MessageCircle } from "lucide-react";
+import {
+  ChevronRight,
+  TrendingUp,
+  Clock,
+  Target,
+  MessageCircle,
+} from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function Home() {
@@ -29,7 +35,7 @@ export default function Home() {
   const [name, setName] = useState("");
 
   const waitlistSignup = trpc.waitlist.signup.useMutation({
-    onSuccess: (result) => {
+    onSuccess: result => {
       if (result.isNew) {
         toast.success("Спасибо! Вы добавлены в лист ожидания.");
       } else {
@@ -66,7 +72,16 @@ export default function Home() {
         <header className="w-full max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8 flex justify-between items-center animate-slide-in-down">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-purple-500/50">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M12 20v-8M6 20v-4M18 20v-12" />
               </svg>
             </div>
@@ -82,7 +97,9 @@ export default function Home() {
                   <MessageCircle size={18} />
                   Chat
                 </button>
-                <span className="text-sm text-white/70">{user.name || user.email}</span>
+                <span className="text-sm text-white/70">
+                  {user.name || user.email}
+                </span>
                 <Button
                   onClick={() => logout()}
                   variant="ghost"
@@ -92,7 +109,10 @@ export default function Home() {
                 </Button>
               </>
             ) : (
-              <a href={getLoginUrl()} className="text-sm font-medium text-white/70 hover:text-white transition-colors flex items-center gap-1">
+              <a
+                href={getLoginUrl()}
+                className="text-sm font-medium text-white/70 hover:text-white transition-colors flex items-center gap-1"
+              >
                 Войти <ChevronRight size={16} />
               </a>
             )}
@@ -104,11 +124,13 @@ export default function Home() {
           {/* Hero Section */}
           <div className="text-center mt-16 md:mt-24 mb-8 animate-slide-in-down delay-100">
             <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight text-white">
-              Твой AI тренер<br />
+              Твой AI тренер
+              <br />
               <span className="gradient-text">и нутрициолог</span>
             </h1>
             <p className="text-muted text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
-              Персональный план тренировок и питания. Адаптируется под тебя каждую неделю.
+              Персональный план тренировок и питания. Адаптируется под тебя
+              каждую неделю.
             </p>
           </div>
 
@@ -142,8 +164,12 @@ export default function Home() {
                 <Target size={24} className="text-purple-300" />
               </div>
               <div>
-                <h3 className="font-bold text-lg mb-2 text-white">План под тебя</h3>
-                <p className="text-muted-sm text-sm leading-relaxed">Учитывает цель, уровень и оборудование</p>
+                <h3 className="font-bold text-lg mb-2 text-white">
+                  План под тебя
+                </h3>
+                <p className="text-muted-sm text-sm leading-relaxed">
+                  Учитывает цель, уровень и оборудование
+                </p>
               </div>
             </div>
 
@@ -153,8 +179,12 @@ export default function Home() {
                 <Clock size={24} className="text-cyan-300" />
               </div>
               <div>
-                <h3 className="font-bold text-lg mb-2 text-white">Дневник питания</h3>
-                <p className="text-muted-sm text-sm leading-relaxed">Трекинг КБЖУ через чат, фото или текст</p>
+                <h3 className="font-bold text-lg mb-2 text-white">
+                  Дневник питания
+                </h3>
+                <p className="text-muted-sm text-sm leading-relaxed">
+                  Трекинг КБЖУ через чат, фото или текст
+                </p>
               </div>
             </div>
 
@@ -165,7 +195,9 @@ export default function Home() {
               </div>
               <div>
                 <h3 className="font-bold text-lg mb-2 text-white">Прогресс</h3>
-                <p className="text-muted-sm text-sm leading-relaxed">Замеры, вес и адаптация плана</p>
+                <p className="text-muted-sm text-sm leading-relaxed">
+                  Замеры, вес и адаптация плана
+                </p>
               </div>
             </div>
           </div>
@@ -175,7 +207,9 @@ export default function Home() {
 
           {/* How It Works Section */}
           <div className="w-full mb-32 md:mb-40 animate-slide-in-up delay-400">
-            <h2 className="text-2xl md:text-3xl font-bold text-center mb-20 text-white">Как это работает</h2>
+            <h2 className="text-2xl md:text-3xl font-bold text-center mb-20 text-white">
+              Как это работает
+            </h2>
 
             <div className="relative flex flex-col md:flex-row justify-between items-start gap-12 md:gap-8">
               {/* Connecting line (desktop only) */}
@@ -184,21 +218,29 @@ export default function Home() {
               {/* Step 1 */}
               <div className="flex flex-col items-center text-center w-full md:w-1/3">
                 <div className="step-circle mb-6">1</div>
-                <h4 className="font-bold text-lg mb-3 text-white">Расскажи о себе</h4>
-                <p className="text-muted-sm text-sm">Цель, параметры, условия</p>
+                <h4 className="font-bold text-lg mb-3 text-white">
+                  Расскажи о себе
+                </h4>
+                <p className="text-muted-sm text-sm">
+                  Цель, параметры, условия
+                </p>
               </div>
 
               {/* Step 2 */}
               <div className="flex flex-col items-center text-center w-full md:w-1/3">
                 <div className="step-circle mb-6">2</div>
-                <h4 className="font-bold text-lg mb-3 text-white">Получи план</h4>
+                <h4 className="font-bold text-lg mb-3 text-white">
+                  Получи план
+                </h4>
                 <p className="text-muted-sm text-sm">Тренировки + питание</p>
               </div>
 
               {/* Step 3 */}
               <div className="flex flex-col items-center text-center w-full md:w-1/3">
                 <div className="step-circle mb-6">3</div>
-                <h4 className="font-bold text-lg mb-3 text-white">Следуй и расти</h4>
+                <h4 className="font-bold text-lg mb-3 text-white">
+                  Следуй и расти
+                </h4>
                 <p className="text-muted-sm text-sm">Бот адаптирует план</p>
               </div>
             </div>
@@ -207,7 +249,9 @@ export default function Home() {
           {/* Bottom CTA Section */}
           <div className="glass p-8 md:p-16 rounded-3xl flex flex-col items-center gap-8 mb-20 animate-slide-in-up delay-500">
             <div>
-              <h2 className="text-3xl md:text-4xl font-bold text-center text-white">Готов начать?</h2>
+              <h2 className="text-3xl md:text-4xl font-bold text-center text-white">
+                Готов начать?
+              </h2>
             </div>
 
             {/* Email Signup Form or Chat Button */}
@@ -220,13 +264,16 @@ export default function Home() {
                 Перейти в чат
               </button>
             ) : (
-              <form onSubmit={handleSignup} className="w-full max-w-md flex flex-col gap-4">
+              <form
+                onSubmit={handleSignup}
+                className="w-full max-w-md flex flex-col gap-4"
+              >
                 <div className="flex flex-col gap-2">
                   <Input
                     type="email"
                     placeholder="Твой email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={e => setEmail(e.target.value)}
                     className="bg-white/10 border-white/20 text-white placeholder:text-white/40 py-3 px-4 rounded-xl"
                     disabled={waitlistSignup.isPending}
                   />
@@ -236,7 +283,7 @@ export default function Home() {
                     type="text"
                     placeholder="Имя (опционально)"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={e => setName(e.target.value)}
                     className="bg-white/10 border-white/20 text-white placeholder:text-white/40 py-3 px-4 rounded-xl"
                     disabled={waitlistSignup.isPending}
                   />
@@ -246,7 +293,10 @@ export default function Home() {
                   disabled={waitlistSignup.isPending}
                   className="btn-primary w-full flex items-center justify-center gap-2"
                 >
-                  {waitlistSignup.isPending ? "Загрузка..." : "Войти через Google"} <ChevronRight size={18} />
+                  {waitlistSignup.isPending
+                    ? "Загрузка..."
+                    : "Войти через Google"}{" "}
+                  <ChevronRight size={18} />
                 </button>
               </form>
             )}

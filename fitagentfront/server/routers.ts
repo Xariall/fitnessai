@@ -46,15 +46,17 @@ export const appRouter = router({
   // ── Waitlist ──────────────────────────────────────────────────────────
   waitlist: router({
     signup: publicProcedure
-      .input(z.object({
-        email: z.string().email(),
-        name: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          email: z.string().email(),
+          name: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
-        const data = await apiRequest("/api/waitlist", {
+        const data = (await apiRequest("/api/waitlist", {
           method: "POST",
           body: input,
-        }) as { success: boolean; isNew: boolean; message: string };
+        })) as { success: boolean; isNew: boolean; message: string };
         return data;
       }),
   }),
@@ -64,42 +66,61 @@ export const appRouter = router({
     createConversation: protectedProcedure
       .input(z.object({ title: z.string().optional() }))
       .mutation(async ({ input, ctx }) => {
-        const data = await apiRequest("/api/conversations", {
+        const data = (await apiRequest("/api/conversations", {
           method: "POST",
           body: { title: input.title },
           cookie: ctx.req.headers.cookie,
-        }) as { id: number; title: string; created_at: string };
+        })) as { id: number; title: string; created_at: string };
         return { success: true, conversationId: data.id };
       }),
 
     getConversations: protectedProcedure.query(async ({ ctx }) => {
       return apiRequest("/api/conversations", {
         cookie: ctx.req.headers.cookie,
-      }) as Promise<Array<{ id: number; title: string; created_at: string; updated_at: string }>>;
+      }) as Promise<
+        Array<{
+          id: number;
+          title: string;
+          created_at: string;
+          updated_at: string;
+        }>
+      >;
     }),
 
     getMessages: protectedProcedure
       .input(z.object({ conversationId: z.number() }))
       .query(async ({ input, ctx }) => {
-        return apiRequest(`/api/conversations/${input.conversationId}/messages`, {
-          cookie: ctx.req.headers.cookie,
-        }) as Promise<Array<{ id: number; role: string; content: string; created_at: string }>>;
+        return apiRequest(
+          `/api/conversations/${input.conversationId}/messages`,
+          {
+            cookie: ctx.req.headers.cookie,
+          }
+        ) as Promise<
+          Array<{
+            id: number;
+            role: string;
+            content: string;
+            created_at: string;
+          }>
+        >;
       }),
 
     sendMessage: protectedProcedure
-      .input(z.object({
-        conversationId: z.number(),
-        message: z.string().min(1),
-      }))
+      .input(
+        z.object({
+          conversationId: z.number(),
+          message: z.string().min(1),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        const data = await apiRequest(
+        const data = (await apiRequest(
           `/api/conversations/${input.conversationId}/chat`,
           {
             method: "POST",
             body: { message: input.message },
             cookie: ctx.req.headers.cookie,
           }
-        ) as { response: string };
+        )) as { response: string };
         return { success: true, assistantMessage: data.response };
       }),
   }),
@@ -111,17 +132,23 @@ export const appRouter = router({
     }),
 
     update: protectedProcedure
-      .input(z.object({
-        name: z.string().max(100).optional(),
-        age: z.number().int().min(10).max(120).optional(),
-        height: z.number().gt(50).lte(300).optional(),
-        weight: z.number().gt(10).lte(500).optional(),
-        gender: z.enum(["male", "female", "other"]).optional(),
-        activity: z.enum(["sedentary", "moderate", "active", "athlete"]).optional(),
-        goal: z.enum(["lose", "gain", "maintain", "recomposition"]).optional(),
-        injuries: z.string().max(2000).optional(),
-        onboarding_completed: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().max(100).optional(),
+          age: z.number().int().min(10).max(120).optional(),
+          height: z.number().gt(50).lte(300).optional(),
+          weight: z.number().gt(10).lte(500).optional(),
+          gender: z.enum(["male", "female", "other"]).optional(),
+          activity: z
+            .enum(["sedentary", "moderate", "active", "athlete"])
+            .optional(),
+          goal: z
+            .enum(["lose", "gain", "maintain", "recomposition"])
+            .optional(),
+          injuries: z.string().max(2000).optional(),
+          onboarding_completed: z.boolean().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         return apiRequest("/api/profile", {
           method: "PUT",
