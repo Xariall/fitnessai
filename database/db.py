@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.utcnow()
 
 from sqlalchemy import delete, func, select, update
 
