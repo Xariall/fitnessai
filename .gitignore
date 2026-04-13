@@ -14,3 +14,4 @@ fitagentfront/dist/
 fitagentfront/.manus-logs/
 node_modules/
 dist/
+.vercel

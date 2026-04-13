@@ -9,7 +9,16 @@ import {
 } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect, useRef } from "react";
-import { Send, Plus, MessageSquare, ArrowLeft, Home, HelpCircle, Copy, Check } from "lucide-react";
+import {
+  Send,
+  Plus,
+  MessageSquare,
+  ArrowLeft,
+  Home,
+  HelpCircle,
+  Copy,
+  Check,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -39,7 +48,9 @@ const DOCKER_STEPS = [
 export default function Chat() {
   const { user, isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
-  const [selectedConversation, setSelectedConversation] = useState<number | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<
+    number | null
+  >(null);
   const [messageInput, setMessageInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -65,7 +76,7 @@ export default function Chat() {
 
   // Mutations
   const createConv = trpc.chat.createConversation.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       setSelectedConversation(data.conversationId);
       conversations.refetch();
     },
@@ -80,7 +91,7 @@ export default function Chat() {
       messages.refetch();
       conversations.refetch();
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(error.message || "Failed to send message");
       setIsLoading(false);
     },
@@ -143,7 +154,7 @@ export default function Chat() {
 
         {/* Conversations List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {conversations.data?.map((conv) => (
+          {conversations.data?.map(conv => (
             <button
               key={conv.id}
               onClick={() => setSelectedConversation(conv.id)}
@@ -154,7 +165,10 @@ export default function Chat() {
               }`}
             >
               <div className="flex items-start gap-2">
-                <MessageSquare size={16} className="mt-1 flex-shrink-0 text-purple-400" />
+                <MessageSquare
+                  size={16}
+                  className="mt-1 flex-shrink-0 text-purple-400"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white truncate">{conv.title}</p>
                   <p className="text-xs text-muted-sm mt-1">
@@ -169,7 +183,9 @@ export default function Chat() {
         {/* Sidebar Footer: user info + actions */}
         <div className="p-4 border-t border-white/10 space-y-3">
           {/* User name */}
-          <p className="text-xs text-muted-sm truncate">{user?.name || user?.email}</p>
+          <p className="text-xs text-muted-sm truncate">
+            {user?.name || user?.email}
+          </p>
 
           {/* Action buttons */}
           <div className="flex items-center gap-2">
@@ -202,8 +218,8 @@ export default function Chat() {
                 </DialogHeader>
 
                 <p className="text-sm text-white/60 mb-4">
-                  Run FitAgent locally with Docker Compose — three commands get you
-                  a fully working stack (PostgreSQL · FastAPI · React).
+                  Run FitAgent locally with Docker Compose — three commands get
+                  you a fully working stack (PostgreSQL · FastAPI · React).
                 </p>
 
                 <div className="space-y-3">
@@ -232,8 +248,12 @@ export default function Chat() {
 
                 <div className="mt-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
                   <p className="text-xs text-purple-300">
-                    <strong>Requires:</strong> Docker Desktop, a Gemini API key, and Google OAuth credentials.
-                    Copy <code className="bg-black/30 px-1 rounded">.env.example → .env</code> and fill in the values before running.
+                    <strong>Requires:</strong> Docker Desktop, a Gemini API key,
+                    and Google OAuth credentials. Copy{" "}
+                    <code className="bg-black/30 px-1 rounded">
+                      .env.example → .env
+                    </code>{" "}
+                    and fill in the values before running.
                   </p>
                 </div>
               </DialogContent>
@@ -266,10 +286,12 @@ export default function Chat() {
               ) : messages.data && messages.data.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4">
                   <MessageSquare size={48} className="text-purple-400/30" />
-                  <p className="text-muted-sm">Start a conversation with your AI trainer</p>
+                  <p className="text-muted-sm">
+                    Start a conversation with your AI trainer
+                  </p>
                 </div>
               ) : (
-                messages.data?.map((msg) => (
+                messages.data?.map(msg => (
                   <div
                     key={msg.id}
                     className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
@@ -313,13 +335,15 @@ export default function Chat() {
                   type="text"
                   placeholder="Ask your AI trainer..."
                   value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
+                  onChange={e => setMessageInput(e.target.value)}
                   disabled={isLoading || sendMsg.isPending}
                   className="bg-white/10 border-white/20 text-white placeholder:text-white/40 flex-1"
                 />
                 <button
                   type="submit"
-                  disabled={isLoading || sendMsg.isPending || !messageInput.trim()}
+                  disabled={
+                    isLoading || sendMsg.isPending || !messageInput.trim()
+                  }
                   className="btn-primary p-3 rounded-xl flex items-center justify-center"
                 >
                   <Send size={20} />
@@ -331,8 +355,13 @@ export default function Chat() {
           <div className="flex-1 flex flex-col items-center justify-center gap-6">
             <MessageSquare size={64} className="text-purple-400/30" />
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-2">Welcome to FitAgent Chat</h2>
-              <p className="text-muted-sm mb-6">Start a new conversation to get personalized fitness and nutrition advice</p>
+              <h2 className="text-2xl font-bold text-white mb-2">
+                Welcome to FitAgent Chat
+              </h2>
+              <p className="text-muted-sm mb-6">
+                Start a new conversation to get personalized fitness and
+                nutrition advice
+              </p>
               <button
                 onClick={handleNewConversation}
                 disabled={createConv.isPending}
