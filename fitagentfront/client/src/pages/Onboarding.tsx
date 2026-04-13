@@ -72,7 +72,7 @@ export default function Onboarding() {
   const [injuries, setInjuries] = useState("");
 
   const updateProfile = trpc.profile.update.useMutation({
-    onSuccess: () => navigate("/chat"),
+    onSuccess: () => navigate("/dashboard"),
     onError: () => toast.error("Ошибка сохранения. Попробуйте ещё раз."),
   });
 

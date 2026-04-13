@@ -29,6 +29,8 @@ export default function Home() {
     if (profileQuery.isLoading || profileQuery.data === undefined) return;
     if (!profileQuery.data?.onboarding_completed) {
       navigate("/onboarding");
+    } else {
+      navigate("/dashboard");
     }
   }, [isAuthenticated, profileQuery.isLoading, profileQuery.data, navigate]);
   const [email, setEmail] = useState("");
