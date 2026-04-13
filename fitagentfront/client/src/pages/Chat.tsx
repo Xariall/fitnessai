@@ -37,7 +37,7 @@ const DOCKER_STEPS = [
 ];
 
 export default function Chat() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
   const [selectedConversation, setSelectedConversation] = useState<number | null>(null);
   const [messageInput, setMessageInput] = useState("");
@@ -91,12 +91,13 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.data]);
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated (wait for auth check to complete first)
   useEffect(() => {
+    if (loading) return;
     if (!isAuthenticated) {
       navigate("/");
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, loading, navigate]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,7 +115,7 @@ export default function Chat() {
     await createConv.mutateAsync({});
   };
 
-  if (!isAuthenticated) {
+  if (loading || !isAuthenticated) {
     return null;
   }
 
