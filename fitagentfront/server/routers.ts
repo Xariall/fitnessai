@@ -119,6 +119,8 @@ export const appRouter = router({
         gender: z.enum(["male", "female", "other"]).optional(),
         activity: z.enum(["sedentary", "moderate", "active", "athlete"]).optional(),
         goal: z.enum(["lose", "gain", "maintain", "recomposition"]).optional(),
+        injuries: z.string().max(2000).optional(),
+        onboarding_completed: z.boolean().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         return apiRequest("/api/profile", {

@@ -4,13 +4,27 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronRight, TrendingUp, Clock, Target, MessageCircle } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function Home() {
   const { user, isAuthenticated, logout } = useAuth();
   const [, navigate] = useLocation();
+
+  const profileQuery = trpc.profile.get.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+  });
+
+  // Redirect new users to onboarding
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (profileQuery.isLoading || profileQuery.data === undefined) return;
+    if (!profileQuery.data?.onboarding_completed) {
+      navigate("/onboarding");
+    }
+  }, [isAuthenticated, profileQuery.isLoading, profileQuery.data, navigate]);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
 

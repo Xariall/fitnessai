@@ -248,6 +248,8 @@ async def get_profile(user: User = Depends(get_current_user)) -> dict:
         "gender": user.gender,
         "activity": user.activity,
         "goal": user.goal,
+        "injuries": user.injuries,
+        "onboarding_completed": user.onboarding_completed,
     }
 
 

@@ -16,6 +16,8 @@ class UserProfileUpdate(BaseModel):
     gender: str | None = None
     activity: str | None = None
     goal: str | None = None
+    injuries: str | None = Field(default=None, max_length=2000)
+    onboarding_completed: bool | None = None
 
     @field_validator("gender")
     @classmethod
@@ -67,6 +69,8 @@ class UserProfile(BaseModel):
     gender: str | None
     activity: str | None
     goal: str | None
+    injuries: str | None
+    onboarding_completed: bool
 
 
 class ConversationResponse(BaseModel):

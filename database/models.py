@@ -28,6 +28,8 @@ class User(Base):
     gender: Mapped[str | None] = mapped_column(String(10))
     activity: Mapped[str | None] = mapped_column(String(20))
     goal: Mapped[str | None] = mapped_column(String(20))
+    injuries: Mapped[str | None] = mapped_column(Text)
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
