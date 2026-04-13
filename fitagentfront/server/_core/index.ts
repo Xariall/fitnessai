@@ -56,8 +56,8 @@ async function startServer() {
     return res.redirect("/");
   });
 
-  /** Initiate Google OAuth — redirect to the FastAPI /api/auth/google endpoint.
-   *  Must use the PUBLIC URL (fastapiBaseUrl) so the browser can follow it. */
+  /** Legacy OAuth start route — kept for backwards compatibility.
+   *  The frontend now links directly to the FastAPI /api/auth/google endpoint. */
   app.get("/api/oauth/start", (_req, res) => {
     res.redirect(`${ENV.fastapiBaseUrl}/api/auth/google`);
   });
@@ -76,7 +76,9 @@ async function startServer() {
     // Serve the Vite-built client from dist/public (relative to dist/index.js)
     const distPath = path.resolve(__dirname, "public");
     if (!fs.existsSync(distPath)) {
-      console.error(`Build directory not found: ${distPath}. Run pnpm build first.`);
+      console.error(
+        `Build directory not found: ${distPath}. Run pnpm build first.`
+      );
     }
     app.use(express.static(distPath));
     app.use("*", (_req, res) => {

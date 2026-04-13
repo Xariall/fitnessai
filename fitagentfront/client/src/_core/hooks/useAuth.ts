@@ -48,7 +48,13 @@ export function useAuth(options?: UseAuthOptions) {
       error: meQuery.error ?? logoutMutation.error ?? null,
       isAuthenticated: Boolean(meQuery.data),
     }),
-    [meQuery.data, meQuery.error, meQuery.isLoading, logoutMutation.error, logoutMutation.isPending]
+    [
+      meQuery.data,
+      meQuery.error,
+      meQuery.isLoading,
+      logoutMutation.error,
+      logoutMutation.isPending,
+    ]
   );
 
   useEffect(() => {
@@ -56,9 +62,19 @@ export function useAuth(options?: UseAuthOptions) {
     if (meQuery.isLoading || logoutMutation.isPending) return;
     if (state.user) return;
     if (typeof window === "undefined") return;
-    if (window.location.pathname === redirectPath) return;
+    // redirectPath may be an absolute URL (e.g. Railway backend) or a relative path
+    const isAlreadyAtRedirect = redirectPath.startsWith("http")
+      ? window.location.href.startsWith(redirectPath)
+      : window.location.pathname === redirectPath;
+    if (isAlreadyAtRedirect) return;
     window.location.href = redirectPath;
-  }, [redirectOnUnauthenticated, redirectPath, logoutMutation.isPending, meQuery.isLoading, state.user]);
+  }, [
+    redirectOnUnauthenticated,
+    redirectPath,
+    logoutMutation.isPending,
+    meQuery.isLoading,
+    state.user,
+  ]);
 
   return {
     ...state,
