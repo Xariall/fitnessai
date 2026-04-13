@@ -1,10 +1,10 @@
 """SQLAlchemy ORM models for all application tables."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
-    Boolean, DateTime, Float, ForeignKey,
-    Integer, String, Text,
+    Boolean, Date, DateTime, Float, ForeignKey,
+    Integer, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -147,3 +147,37 @@ class Waitlist(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class NutritionPlan(Base):
+    __tablename__ = "nutrition_plans"
+    __table_args__ = (UniqueConstraint("user_id", "date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    generated_by: Mapped[str | None] = mapped_column(String(20))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class MealPlanItem(Base):
+    __tablename__ = "meal_plan_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("nutrition_plans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    meal_type: Mapped[str | None] = mapped_column(String(20))
+    product_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    weight_g: Mapped[float] = mapped_column(Float, nullable=False)
+    calories: Mapped[float] = mapped_column(Float, nullable=False)
+    protein: Mapped[float] = mapped_column(Float, nullable=False)
+    fat: Mapped[float] = mapped_column(Float, nullable=False)
+    carbs: Mapped[float] = mapped_column(Float, nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
