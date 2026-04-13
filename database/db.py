@@ -25,7 +25,9 @@ from database.models import (
     Exercise,
     FoodDiary,
     FoodProduct,
+    MealPlanItem,
     Message,
+    NutritionPlan,
     User,
     Waitlist,
     WeightLog,
@@ -326,6 +328,164 @@ async def get_daily_summary(user_id: str, date: str | None = None) -> dict:
     for k in ("calories", "protein", "fat", "carbs"):
         totals[k] = round(float(totals[k]), 1)
     return totals
+
+
+# ── Nutrition plans ───────────────────────────────────────────────────────────
+
+async def get_nutrition_plan(user_id: int, date: str) -> dict | None:
+    from datetime import date as date_type
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(NutritionPlan).where(
+                NutritionPlan.user_id == user_id,
+                NutritionPlan.date == day,
+            )
+        )
+        plan = result.scalar_one_or_none()
+        if not plan:
+            return None
+        items_result = await session.execute(
+            select(MealPlanItem)
+            .where(MealPlanItem.plan_id == plan.id)
+            .order_by(MealPlanItem.order_index)
+        )
+        items = items_result.scalars().all()
+        meals: dict[str, list[dict]] = {}
+        for item in items:
+            meal_type = item.meal_type or "other"
+            meals.setdefault(meal_type, []).append({
+                "id": item.id,
+                "product_name": item.product_name,
+                "weight_g": item.weight_g,
+                "calories": item.calories,
+                "protein": item.protein,
+                "fat": item.fat,
+                "carbs": item.carbs,
+                "order_index": item.order_index,
+            })
+        return {
+            "id": plan.id,
+            "user_id": plan.user_id,
+            "date": plan.date.isoformat(),
+            "generated_by": plan.generated_by,
+            "notes": plan.notes,
+            "meals": meals,
+            "created_at": plan.created_at.isoformat(),
+            "updated_at": plan.updated_at.isoformat(),
+        }
+
+
+async def create_nutrition_plan(
+    user_id: int,
+    date: str,
+    meals: list[dict],
+    notes: str | None = None,
+    generated_by: str = "agent",
+) -> dict:
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise ValueError(f"Invalid date format: {date!r}, expected YYYY-MM-DD")
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(NutritionPlan).where(
+                NutritionPlan.user_id == user_id,
+                NutritionPlan.date == day,
+            )
+        )
+        plan = result.scalar_one_or_none()
+        if plan:
+            await session.execute(
+                delete(MealPlanItem).where(MealPlanItem.plan_id == plan.id)
+            )
+            plan.notes = notes
+            plan.generated_by = generated_by
+            plan.updated_at = _now()
+        else:
+            plan = NutritionPlan(
+                user_id=user_id,
+                date=day,
+                notes=notes,
+                generated_by=generated_by,
+                created_at=_now(),
+                updated_at=_now(),
+            )
+            session.add(plan)
+            await session.flush()
+
+        for i, meal in enumerate(meals):
+            session.add(MealPlanItem(
+                plan_id=plan.id,
+                meal_type=meal.get("meal_type"),
+                product_name=meal["product_name"],
+                weight_g=float(meal["weight_g"]),
+                calories=float(meal["calories"]),
+                protein=float(meal["protein"]),
+                fat=float(meal["fat"]),
+                carbs=float(meal["carbs"]),
+                order_index=i,
+            ))
+        await session.commit()
+        await session.refresh(plan)
+
+    return await get_nutrition_plan(user_id, date)  # type: ignore[return-value]
+
+
+async def update_plan_item(item_id: int, weight_g: float) -> dict | None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(MealPlanItem).where(MealPlanItem.id == item_id)
+        )
+        item = result.scalar_one_or_none()
+        if not item:
+            return None
+
+        food_result = await session.execute(
+            select(FoodProduct).where(FoodProduct.name.ilike(f"%{item.product_name}%"))
+        )
+        food = food_result.scalars().first()
+
+        if food:
+            ratio = weight_g / 100.0
+            calories = round(food.calories * ratio, 1)
+            protein = round(food.protein * ratio, 1)
+            fat = round(food.fat * ratio, 1)
+            carbs = round(food.carbs * ratio, 1)
+        else:
+            ratio = weight_g / item.weight_g if item.weight_g else 1.0
+            calories = round(item.calories * ratio, 1)
+            protein = round(item.protein * ratio, 1)
+            fat = round(item.fat * ratio, 1)
+            carbs = round(item.carbs * ratio, 1)
+
+        await session.execute(
+            update(MealPlanItem)
+            .where(MealPlanItem.id == item_id)
+            .values(
+                weight_g=weight_g,
+                calories=calories,
+                protein=protein,
+                fat=fat,
+                carbs=carbs,
+            )
+        )
+        await session.commit()
+
+        return {
+            "id": item_id,
+            "product_name": item.product_name,
+            "meal_type": item.meal_type,
+            "weight_g": weight_g,
+            "calories": calories,
+            "protein": protein,
+            "fat": fat,
+            "carbs": carbs,
+            "order_index": item.order_index,
+        }
 
 
 # ── Conversations & messages ──────────────────────────────────────────────────

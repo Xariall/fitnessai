@@ -127,5 +127,47 @@ async def calculate_daily_norm(user_id: str) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+@mcp.tool()
+async def get_nutrition_plan(user_id: int, date: str) -> str:
+    """Получить план питания на конкретный день.
+    date — формат 'YYYY-MM-DD'. Возвращает план с блюдами по приёмам пищи или null если плана нет."""
+    plan = await db.get_nutrition_plan(user_id, date)
+    if plan is None:
+        return "null"
+    return json.dumps(plan, ensure_ascii=False)
+
+
+@mcp.tool()
+async def create_nutrition_plan(
+    user_id: int,
+    date: str,
+    meals: list,
+    notes: str | None = None,
+) -> str:
+    """Создать или перезаписать план питания на день.
+    date — формат 'YYYY-MM-DD'.
+    meals — список блюд: [{meal_type, product_name, weight_g, calories, protein, fat, carbs}].
+    meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack'.
+    Если план на эту дату уже существует — старые блюда удаляются и создаются новые."""
+    plan = await db.create_nutrition_plan(
+        user_id=user_id,
+        date=date,
+        meals=meals,
+        notes=notes,
+        generated_by="agent",
+    )
+    return json.dumps(plan, ensure_ascii=False)
+
+
+@mcp.tool()
+async def update_plan_item(item_id: int, weight_g: float) -> str:
+    """Изменить вес порции блюда в плане питания и пересчитать КБЖУ.
+    Ищет продукт в базе food_products для точного пересчёта; если не найден — масштабирует пропорционально."""
+    updated = await db.update_plan_item(item_id, weight_g)
+    if updated is None:
+        return f"Позиция с id={item_id} не найдена."
+    return json.dumps(updated, ensure_ascii=False)
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")
