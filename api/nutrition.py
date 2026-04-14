@@ -8,10 +8,9 @@ import os
 import re
 from datetime import date as date_type
 
-
+import google.genai as genai_sdk
+from google.genai import types as genai_types
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from langchain_core.messages import HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
 import database.db as db
@@ -43,16 +42,16 @@ class AddItemBody(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_llm() -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
-        model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-        google_api_key=os.getenv("GEMINI_API_KEY"),
-        temperature=0.7,
-    )
+def _genai_client() -> genai_sdk.Client:
+    return genai_sdk.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 async def _generate_meals(daily_norm: dict, notes: str) -> list[dict]:
-    """Call Gemini directly to get a structured meal plan as a JSON array."""
+    """Call Gemini in JSON mode to get a structured meal plan.
+
+    Uses google.genai SDK directly with response_mime_type='application/json'
+    so the model is guaranteed to return valid JSON — no regex needed.
+    """
     notes_line = f"\nПожелания пользователя: {notes}" if notes.strip() else ""
     prompt = (
         f"Составь план питания на один день. Целевая норма:{notes_line}\n"
@@ -60,26 +59,23 @@ async def _generate_meals(daily_norm: dict, notes: str) -> list[dict]:
         f"- Белки: {daily_norm['protein_g']} г\n"
         f"- Жиры: {daily_norm['fat_g']} г\n"
         f"- Углеводы: {daily_norm['carbs_g']} г\n\n"
-        f"Верни ТОЛЬКО JSON-массив без пояснений и без markdown. "
-        f"Каждый элемент массива — одно блюдо:\n"
+        f"Верни JSON-массив блюд. Каждый элемент:\n"
         f'{{"meal_type":"breakfast","product_name":"Название","weight_g":100,'
         f'"calories":300,"protein":15,"fat":8,"carbs":40}}\n\n'
         f"meal_type только: breakfast, lunch, dinner, snack.\n"
-        f"Составь 2-3 блюда на breakfast, lunch, dinner и 1-2 на snack. "
-        f"Суммарные калории должны быть близки к {daily_norm['target_calories']} ккал."
+        f"2-3 блюда на breakfast/lunch/dinner, 1-2 на snack. "
+        f"Суммарные калории ≈ {daily_norm['target_calories']} ккал."
     )
-    llm = _get_llm()
-    response = await llm.ainvoke([HumanMessage(content=prompt)])
-    content = response.content if isinstance(response.content, str) else str(response.content)
-
-    # Strip markdown code fences if present
-    content = re.sub(r"```(?:json)?\s*", "", content).strip().rstrip("`").strip()
-
-    # Extract JSON array
-    match = re.search(r"\[.*\]", content, re.DOTALL)
-    if not match:
-        raise ValueError(f"LLM response has no JSON array: {content[:300]}")
-    return json.loads(match.group())
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    client = _genai_client()
+    response = await client.aio.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+        ),
+    )
+    return json.loads(response.text)
 
 
 def _parse_nutrition_json(text: str) -> dict | None:
@@ -179,18 +175,22 @@ async def add_item(
         fat = round(food["fat"] * ratio, 1)
         carbs = round(food["carbs"] * ratio, 1)
     else:
-        # Ask LLM directly to estimate nutrition for 100g
+        # Ask LLM in JSON mode to estimate nutrition for 100g
         prompt = (
             f"Оцени питательную ценность продукта '{body.product_name}' на 100г. "
-            f"Ответь строго в формате JSON без пояснений и без markdown: "
-            f'{{"calories": <число>, "protein": <число>, "fat": <число>, "carbs": <число>}}'
+            f"Верни JSON-объект: "
+            f'{{"calories": число, "protein": число, "fat": число, "carbs": число}}'
         )
         try:
-            llm = _get_llm()
-            resp = await llm.ainvoke([HumanMessage(content=prompt)])
-            reply = resp.content if isinstance(resp.content, str) else str(resp.content)
-            reply = re.sub(r"```(?:json)?\s*", "", reply).strip().rstrip("`").strip()
-            nutrition = _parse_nutrition_json(reply)
+            client = _genai_client()
+            resp = await client.aio.models.generate_content(
+                model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
+            )
+            nutrition = _parse_nutrition_json(resp.text)
         except Exception:
             logger.exception("LLM food lookup error for %r", body.product_name)
             nutrition = None
