@@ -141,14 +141,19 @@ async def get_nutrition_plan(user_id: int, date: str) -> str:
 async def create_nutrition_plan(
     user_id: int,
     date: str,
-    meals: list,
+    meals_json: str,
     notes: str | None = None,
 ) -> str:
     """Создать или перезаписать план питания на день.
     date — формат 'YYYY-MM-DD'.
-    meals — список блюд: [{meal_type, product_name, weight_g, calories, protein, fat, carbs}].
+    meals_json — JSON-строка со списком блюд:
+      '[{"meal_type":"breakfast","product_name":"Овсянка","weight_g":100,"calories":350,"protein":12,"fat":6,"carbs":60}]'
     meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack'.
     Если план на эту дату уже существует — старые блюда удаляются и создаются новые."""
+    try:
+        meals = json.loads(meals_json)
+    except json.JSONDecodeError as e:
+        return f"Ошибка: невалидный JSON в meals_json: {e}"
     plan = await db.create_nutrition_plan(
         user_id=user_id,
         date=date,
