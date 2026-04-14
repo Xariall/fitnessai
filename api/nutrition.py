@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
-import uuid
 from datetime import date as date_type
 
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
 import database.db as db
-from agent.graph import get_graph
-from agent.prompts import SYSTEM_PROMPT
 from api.auth import get_current_user
 from database.models import User
 
@@ -43,39 +43,47 @@ class AddItemBody(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _extract_content(content) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(
-            b if isinstance(b, str) else b.get("text", "")
-            for b in content
-            if isinstance(b, (str, dict))
-        ) or str(content)
-    return str(content)
+def _get_llm() -> ChatGoogleGenerativeAI:
+    return ChatGoogleGenerativeAI(
+        model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        google_api_key=os.getenv("GEMINI_API_KEY"),
+        temperature=0.7,
+    )
 
 
-def _extract_text(response: dict) -> str:
-    for msg in reversed(response.get("messages", [])):
-        if hasattr(msg, "type") and msg.type == "ai" and msg.content:
-            if not getattr(msg, "tool_calls", None):
-                return _extract_content(msg.content)
-    return ""
+async def _generate_meals(daily_norm: dict, notes: str) -> list[dict]:
+    """Call Gemini directly to get a structured meal plan as a JSON array."""
+    notes_line = f"\nПожелания пользователя: {notes}" if notes.strip() else ""
+    prompt = (
+        f"Составь план питания на один день. Целевая норма:{notes_line}\n"
+        f"- Калории: {daily_norm['target_calories']} ккал\n"
+        f"- Белки: {daily_norm['protein_g']} г\n"
+        f"- Жиры: {daily_norm['fat_g']} г\n"
+        f"- Углеводы: {daily_norm['carbs_g']} г\n\n"
+        f"Верни ТОЛЬКО JSON-массив без пояснений и без markdown. "
+        f"Каждый элемент массива — одно блюдо:\n"
+        f'{{"meal_type":"breakfast","product_name":"Название","weight_g":100,'
+        f'"calories":300,"protein":15,"fat":8,"carbs":40}}\n\n'
+        f"meal_type только: breakfast, lunch, dinner, snack.\n"
+        f"Составь 2-3 блюда на breakfast, lunch, dinner и 1-2 на snack. "
+        f"Суммарные калории должны быть близки к {daily_norm['target_calories']} ккал."
+    )
+    llm = _get_llm()
+    response = await llm.ainvoke([HumanMessage(content=prompt)])
+    content = response.content if isinstance(response.content, str) else str(response.content)
 
+    # Strip markdown code fences if present
+    content = re.sub(r"```(?:json)?\s*", "", content).strip().rstrip("`").strip()
 
-async def _run_agent(user_id: int, thread_id: str, prompt: str) -> str:
-    graph = await get_graph()
-    messages = [
-        SystemMessage(content=SYSTEM_PROMPT.format(user_id=str(user_id)), id="system"),
-        HumanMessage(content=prompt),
-    ]
-    config = {"configurable": {"thread_id": thread_id}}
-    response = await graph.ainvoke({"messages": messages}, config=config)
-    return _extract_text(response)
+    # Extract JSON array
+    match = re.search(r"\[.*\]", content, re.DOTALL)
+    if not match:
+        raise ValueError(f"LLM response has no JSON array: {content[:300]}")
+    return json.loads(match.group())
 
 
 def _parse_nutrition_json(text: str) -> dict | None:
-    """Try to extract {calories, protein, fat, carbs} from agent reply."""
+    """Try to extract {calories, protein, fat, carbs} from LLM reply."""
     try:
         match = re.search(r"\{[^{}]*\"calories\"[^{}]*\}", text, re.DOTALL)
         if match:
@@ -110,8 +118,8 @@ async def generate_plan(
     body: GeneratePlanBody,
     user: User = Depends(get_current_user),
 ) -> dict:
-    """Запустить агента для генерации плана питания на указанный день."""
-    # Pre-check: profile must be complete before running the agent
+    """Генерирует план питания через прямой вызов Gemini (без agent loop)."""
+    # Pre-check: profile must be complete
     daily_norm = await db.calculate_daily_norm(user.id)
     if daily_norm is None:
         raise HTTPException(
@@ -122,35 +130,22 @@ async def generate_plan(
             ),
         )
 
-    notes_part = f"Пожелания: {body.notes}. " if body.notes.strip() else ""
-    prompt = (
-        f"Составь план питания на {body.date} для пользователя. "
-        f"{notes_part}"
-        f"Дневная норма уже рассчитана: "
-        f"{daily_norm['target_calories']} ккал, "
-        f"Б {daily_norm['protein_g']}г, Ж {daily_norm['fat_g']}г, У {daily_norm['carbs_g']}г. "
-        f"Используй create_nutrition_plan чтобы сохранить план. "
-        f"Обязательные параметры: user_id={user.id}, date='{body.date}', notes='{body.notes}'. "
-        f"Параметр meals_json — это JSON-строка (не список!) со всеми блюдами для приёмов пищи "
-        f"breakfast, lunch, dinner, snack. Формат: "
-        f'"[{{\\"meal_type\\":\\"breakfast\\",\\"product_name\\":\\"Овсянка\\",\\"weight_g\\":100,'
-        f'\\"calories\\":350,\\"protein\\":12,\\"fat\\":6,\\"carbs\\":60}}]". '
-        f"Каждое блюдо должно иметь поля: meal_type, product_name, weight_g, calories, protein, fat, carbs. "
-        f"Составь 2-3 блюда на каждый приём пищи, суммарно близко к норме калорий."
-    )
-    # Use a unique thread per attempt so MemorySaver never replays stale messages
-    thread_id = f"nutplan_{user.id}_{body.date}_{uuid.uuid4().hex[:8]}"
     try:
-        agent_reply = await _run_agent(user.id, thread_id, prompt)
-        logger.info("Agent reply for plan generation (user=%s, date=%s): %.200s", user.id, body.date, agent_reply)
+        meals = await _generate_meals(daily_norm, body.notes)
     except Exception:
-        logger.exception("Agent error during plan generation (user=%s, date=%s)", user.id, body.date)
-        raise HTTPException(500, "Ошибка при генерации плана. Попробуйте ещё раз.")
+        logger.exception("LLM meal generation failed (user=%s, date=%s)", user.id, body.date)
+        raise HTTPException(500, "Не удалось сгенерировать план питания. Попробуйте ещё раз.")
 
-    plan = await db.get_nutrition_plan(user.id, body.date)
-    if plan is None:
-        logger.error("Agent did not save plan (user=%s, date=%s). Reply: %.500s", user.id, body.date, agent_reply)
-        raise HTTPException(500, "Агент не сохранил план. Попробуйте ещё раз.")
+    if not meals:
+        raise HTTPException(500, "Модель вернула пустой план. Попробуйте ещё раз.")
+
+    plan = await db.create_nutrition_plan(
+        user_id=user.id,
+        date=body.date,
+        meals=meals,
+        notes=body.notes or None,
+        generated_by="llm",
+    )
     return {"plan": plan, "daily_norm": daily_norm}
 
 
@@ -184,18 +179,20 @@ async def add_item(
         fat = round(food["fat"] * ratio, 1)
         carbs = round(food["carbs"] * ratio, 1)
     else:
-        # Ask agent to estimate nutrition for 100g and return JSON
+        # Ask LLM directly to estimate nutrition for 100g
         prompt = (
             f"Оцени питательную ценность продукта '{body.product_name}' на 100г. "
-            f"Ответь строго в формате JSON без пояснений: "
-            f'{{\"calories\": <число>, \"protein\": <число>, \"fat\": <число>, \"carbs\": <число>}}'
+            f"Ответь строго в формате JSON без пояснений и без markdown: "
+            f'{{"calories": <число>, "protein": <число>, "fat": <число>, "carbs": <число>}}'
         )
-        thread_id = f"food_lookup_{user.id}_{body.product_name}"
         try:
-            reply = await _run_agent(user.id, thread_id, prompt)
+            llm = _get_llm()
+            resp = await llm.ainvoke([HumanMessage(content=prompt)])
+            reply = resp.content if isinstance(resp.content, str) else str(resp.content)
+            reply = re.sub(r"```(?:json)?\s*", "", reply).strip().rstrip("`").strip()
             nutrition = _parse_nutrition_json(reply)
         except Exception:
-            logger.exception("Agent food lookup error")
+            logger.exception("LLM food lookup error for %r", body.product_name)
             nutrition = None
 
         if nutrition:
