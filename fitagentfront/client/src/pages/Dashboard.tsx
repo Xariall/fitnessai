@@ -40,7 +40,7 @@ const CARDS = [
     icon: Apple,
     title: "План питания",
     desc: "Трекинг КБЖУ, дневник питания и рекомендации по рациону под твои параметры",
-    href: "/chat",
+    href: "/nutrition",
     accent: "from-emerald-500/20 to-emerald-600/10",
     border: "border-emerald-500/30 hover:border-emerald-500/60",
     iconBg: "from-emerald-500/30 to-emerald-600/20",
