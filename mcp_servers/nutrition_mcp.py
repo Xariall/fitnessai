@@ -1,11 +1,15 @@
 """MCP-сервер: питание, дневник еды, калории, БЖУ."""
 
 import json
+import logging
 import sys
 import os
 
+logger = logging.getLogger(__name__)
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import httpx
 from fastmcp import FastMCP
 from database import db
 
@@ -44,9 +48,39 @@ async def search_food(query: str) -> str:
     """Поиск продукта в базе по названию.
     Возвращает калории и БЖУ на 100 г. Пример: search_food('курица')"""
     results = await db.search_food(query)
-    if not results:
-        return f"Продукт '{query}' не найден в базе."
-    return json.dumps(results, ensure_ascii=False)
+
+    if results:
+        # Inject source field so the agent knows where data came from
+        for r in results:
+            r["source"] = "local"
+        return json.dumps(results, ensure_ascii=False)
+
+    # Local DB returned nothing — try OpenNutrition API as fallback
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                "https://api.opennutrition.com/foods/search",
+                params={"query": query, "limit": 1},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # API returns a list of food items; take the first match
+            items = data if isinstance(data, list) else data.get("items", data.get("results", []))
+            if items:
+                item = items[0]
+                external = {
+                    "name": item["name"],
+                    "calories": item["calories"],
+                    "protein": item["protein"],
+                    "fat": item["fat"],
+                    "carbs": item["carbohydrates"],  # rename to match local format
+                    "source": "opennutrition",
+                }
+                return json.dumps([external], ensure_ascii=False)
+    except Exception:
+        logger.exception("OpenNutrition API fallback failed for query=%r", query)
+
+    return f"Продукт '{query}' не найден ни в локальной базе, ни во внешнем источнике."
 
 
 @mcp.tool()
