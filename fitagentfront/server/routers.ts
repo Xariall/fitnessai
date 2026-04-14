@@ -2,6 +2,37 @@ import { z } from "zod";
 import { ENV } from "./_core/env";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 
+// ── Shared response types ─────────────────────────────────────────────────────
+type PlanItem = {
+  id: number;
+  product_name: string;
+  meal_type: string | null;
+  weight_g: number;
+  calories: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+  order_index: number;
+};
+type NutritionPlan = {
+  id: number;
+  user_id: number;
+  date: string;
+  generated_by: string | null;
+  notes: string | null;
+  meals: Record<string, PlanItem[]>;
+  created_at: string;
+  updated_at: string;
+};
+type DailyNorm = {
+  bmr: number;
+  tdee: number;
+  target_calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+};
+
 /** Make an authenticated request to the FastAPI backend. */
 async function apiRequest(
   path: string,
@@ -128,7 +159,19 @@ export const appRouter = router({
   // ── User profile ──────────────────────────────────────────────────────
   profile: router({
     get: protectedProcedure.query(async ({ ctx }) => {
-      return apiRequest("/api/profile", { cookie: ctx.req.headers.cookie });
+      return apiRequest("/api/profile", { cookie: ctx.req.headers.cookie }) as Promise<{
+        id: number;
+        name: string | null;
+        email: string | null;
+        age: number | null;
+        height: number | null;
+        weight: number | null;
+        gender: string | null;
+        activity: string | null;
+        goal: string | null;
+        injuries: string | null;
+        onboarding_completed: boolean;
+      }>;
     }),
 
     update: protectedProcedure
@@ -155,6 +198,107 @@ export const appRouter = router({
           body: input,
           cookie: ctx.req.headers.cookie,
         });
+      }),
+  }),
+
+  // ── Nutrition ─────────────────────────────────────────────────────────
+  nutrition: router({
+    getPlan: protectedProcedure
+      .input(z.object({ date: z.string() }))
+      .query(async ({ input, ctx }) => {
+        return apiRequest(
+          `/api/nutrition/plan?date=${encodeURIComponent(input.date)}`,
+          { cookie: ctx.req.headers.cookie }
+        ) as Promise<{ plan: NutritionPlan | null; daily_norm: DailyNorm | null }>;
+      }),
+
+    generatePlan: protectedProcedure
+      .input(z.object({ date: z.string(), notes: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        return apiRequest("/api/nutrition/plan/generate", {
+          method: "POST",
+          body: { date: input.date, notes: input.notes ?? "" },
+          cookie: ctx.req.headers.cookie,
+        }) as Promise<{ plan: NutritionPlan; daily_norm: DailyNorm | null }>;
+      }),
+
+    updateItem: protectedProcedure
+      .input(z.object({ itemId: z.number(), weightG: z.number().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        return apiRequest(`/api/nutrition/plan/item/${input.itemId}`, {
+          method: "PATCH",
+          body: { weight_g: input.weightG },
+          cookie: ctx.req.headers.cookie,
+        }) as Promise<PlanItem>;
+      }),
+
+    addItem: protectedProcedure
+      .input(
+        z.object({
+          planId: z.number(),
+          mealType: z.string().optional(),
+          productName: z.string().min(1),
+          weightG: z.number().positive(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        return apiRequest("/api/nutrition/plan/item", {
+          method: "POST",
+          body: {
+            plan_id: input.planId,
+            meal_type: input.mealType ?? null,
+            product_name: input.productName,
+            weight_g: input.weightG,
+          },
+          cookie: ctx.req.headers.cookie,
+        }) as Promise<PlanItem>;
+      }),
+
+    deleteItem: protectedProcedure
+      .input(z.object({ itemId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const res = await fetch(
+          `${ENV.fastapiUrl}/api/nutrition/plan/item/${input.itemId}`,
+          {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+              ...(ctx.req.headers.cookie ? { Cookie: ctx.req.headers.cookie } : {}),
+            },
+          }
+        );
+        if (!res.ok) {
+          const text = await res.text().catch(() => res.statusText);
+          throw new Error(`FastAPI error ${res.status}: ${text}`);
+        }
+        return { success: true } as const;
+      }),
+
+    getDiary: protectedProcedure
+      .input(z.object({ date: z.string() }))
+      .query(async ({ input, ctx }) => {
+        return apiRequest(
+          `/api/nutrition/diary?date=${encodeURIComponent(input.date)}`,
+          { cookie: ctx.req.headers.cookie }
+        ) as Promise<{
+          entries: Array<{
+            id: number;
+            product_name: string;
+            weight_g: number;
+            calories: number;
+            protein: number;
+            fat: number;
+            carbs: number;
+            logged_at: string;
+          }>;
+          summary: {
+            calories: number;
+            protein: number;
+            fat: number;
+            carbs: number;
+            meals: number;
+          };
+        }>;
       }),
   }),
 });
