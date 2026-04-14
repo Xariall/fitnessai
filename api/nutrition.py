@@ -66,10 +66,11 @@ async def _generate_meals(daily_norm: dict, notes: str) -> list[dict]:
         f"2-3 блюда на breakfast/lunch/dinner, 1-2 на snack. "
         f"Суммарные калории ≈ {daily_norm['target_calories']} ккал."
     )
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    # Use gemini-2.0-flash (non-thinking) for JSON mode — thinking models
+    # may produce unparseable content when response_mime_type is set.
     client = _genai_client()
     response = await client.aio.models.generate_content(
-        model=model_name,
+        model="gemini-2.0-flash",
         contents=prompt,
         config=genai_types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -96,6 +97,21 @@ def _parse_nutrition_json(text: str) -> dict | None:
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.get("/debug-genai")
+async def debug_genai() -> dict:
+    """Диагностика: проверить доступность google.genai и API-ключ."""
+    try:
+        client = _genai_client()
+        response = await client.aio.models.generate_content(
+            model="gemini-2.0-flash",
+            contents='Return this JSON exactly: {"ok": true}',
+            config=genai_types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        return {"status": "ok", "response_text": response.text}
+    except Exception as exc:
+        return {"status": "error", "error_type": type(exc).__name__, "error": str(exc)[:500]}
+
 
 @router.get("/plan")
 async def get_plan(
@@ -128,9 +144,10 @@ async def generate_plan(
 
     try:
         meals = await _generate_meals(daily_norm, body.notes)
-    except Exception:
+    except Exception as exc:
         logger.exception("LLM meal generation failed (user=%s, date=%s)", user.id, body.date)
-        raise HTTPException(500, "Не удалось сгенерировать план питания. Попробуйте ещё раз.")
+        # Include exception type in detail so Railway logs show in the frontend error toast
+        raise HTTPException(500, f"Ошибка генерации: {type(exc).__name__}: {exc}")
 
     if not meals:
         raise HTTPException(500, "Модель вернула пустой план. Попробуйте ещё раз.")
