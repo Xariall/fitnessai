@@ -34,6 +34,10 @@ class UpdateItemBody(BaseModel):
     weight_g: float = Field(gt=0, le=5000)
 
 
+class ToggleConsumedBody(BaseModel):
+    consumed: bool
+
+
 class AddItemBody(BaseModel):
     plan_id: int
     meal_type: str | None = Field(default=None, max_length=20)
@@ -247,6 +251,19 @@ async def patch_item(
 ) -> dict:
     """Изменить вес порции и пересчитать КБЖУ."""
     updated = await db.update_plan_item(item_id, body.weight_g)
+    if updated is None:
+        raise HTTPException(404, "Позиция не найдена.")
+    return updated
+
+
+@router.patch("/plan/item/{item_id}/consumed")
+async def toggle_consumed(
+    item_id: int,
+    body: ToggleConsumedBody,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Отметить блюдо как съеденное / не съеденное."""
+    updated = await db.toggle_plan_item_consumed(item_id, body.consumed)
     if updated is None:
         raise HTTPException(404, "Позиция не найдена.")
     return updated

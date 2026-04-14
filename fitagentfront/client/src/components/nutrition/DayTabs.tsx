@@ -3,10 +3,10 @@ import { useMemo } from "react";
 interface Props {
   activeDate: string; // YYYY-MM-DD
   onDateChange: (date: string) => void;
+  completedDates?: string[];
 }
 
 const DAY_ABBR = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
-const MONTH_ABBR = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
 function toLocalISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -14,7 +14,7 @@ function toLocalISO(d: Date): string {
 
 function getWeekDays(): Date[] {
   const today = new Date();
-  const dow = today.getDay(); // 0=Sun
+  const dow = today.getDay();
   const monday = new Date(today);
   monday.setDate(today.getDate() - ((dow + 6) % 7));
   return Array.from({ length: 7 }, (_, i) => {
@@ -24,35 +24,70 @@ function getWeekDays(): Date[] {
   });
 }
 
-export default function DayTabs({ activeDate, onDateChange }: Props) {
+export default function DayTabs({
+  activeDate,
+  onDateChange,
+  completedDates = [],
+}: Props) {
   const days = useMemo(getWeekDays, []);
   const todayISO = useMemo(() => toLocalISO(new Date()), []);
 
   return (
-    <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+    <div className="rounded-2xl border border-white/[0.09] bg-white/[0.03] p-1.5 flex gap-1">
       {days.map(day => {
         const iso = toLocalISO(day);
         const isActive = iso === activeDate;
         const isToday = iso === todayISO;
+        const isCompleted = completedDates.includes(iso);
+        const isPast = iso < todayISO && !isToday;
 
         return (
           <button
             key={iso}
             onClick={() => onDateChange(iso)}
-            className={`flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl border transition-all duration-200 min-w-[52px] flex-shrink-0 ${
-              isActive
-                ? "bg-purple-500/30 border-purple-500/60 text-white"
-                : "bg-white/5 border-white/10 text-white/50 hover:border-white/20 hover:text-white/80"
-            }`}
+            className={`
+              flex-1 flex flex-col items-center py-3 rounded-xl border transition-all duration-200
+              ${
+                isActive
+                  ? "bg-purple-600 border-purple-400/60 shadow-[0_0_20px_rgba(168,85,247,0.45)] scale-[1.02]"
+                  : "border-transparent hover:bg-white/[0.06]"
+              }
+            `}
           >
-            <span className="text-xs font-medium">{DAY_ABBR[day.getDay()]}</span>
-            <span className={`text-lg font-bold leading-none ${isActive ? "text-white" : ""}`}>
+            {/* Day abbr */}
+            <span
+              className={`text-[10px] font-bold uppercase tracking-widest mb-1.5 ${
+                isActive ? "text-purple-200" : "text-white/40"
+              }`}
+            >
+              {DAY_ABBR[day.getDay()]}
+            </span>
+
+            {/* Day number */}
+            <span
+              className={`text-[22px] font-black leading-none ${
+                isActive
+                  ? "text-white"
+                  : isToday
+                    ? "text-white/90"
+                    : isPast
+                      ? "text-white/45"
+                      : "text-white/30"
+              }`}
+            >
               {day.getDate()}
             </span>
-            <span className="text-[10px] opacity-60">{MONTH_ABBR[day.getMonth()]}</span>
-            {isToday && (
-              <div className={`w-1 h-1 rounded-full ${isActive ? "bg-white" : "bg-purple-400"}`} />
-            )}
+
+            {/* Status indicator */}
+            <div className="mt-2 h-1.5 flex items-center justify-center">
+              {isCompleted ? (
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.9)]" />
+              ) : isToday && !isActive ? (
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-400/80" />
+              ) : isActive ? (
+                <div className="w-4 h-0.5 rounded-full bg-white/50" />
+              ) : null}
+            </div>
           </button>
         );
       })}

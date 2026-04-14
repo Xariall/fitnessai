@@ -13,6 +13,7 @@ type PlanItem = {
   fat: number;
   carbs: number;
   order_index: number;
+  consumed: boolean;
 };
 type NutritionPlan = {
   id: number;
@@ -159,7 +160,9 @@ export const appRouter = router({
   // ── User profile ──────────────────────────────────────────────────────
   profile: router({
     get: protectedProcedure.query(async ({ ctx }) => {
-      return apiRequest("/api/profile", { cookie: ctx.req.headers.cookie }) as Promise<{
+      return apiRequest("/api/profile", {
+        cookie: ctx.req.headers.cookie,
+      }) as Promise<{
         id: number;
         name: string | null;
         email: string | null;
@@ -209,7 +212,10 @@ export const appRouter = router({
         return apiRequest(
           `/api/nutrition/plan?date=${encodeURIComponent(input.date)}`,
           { cookie: ctx.req.headers.cookie }
-        ) as Promise<{ plan: NutritionPlan | null; daily_norm: DailyNorm | null }>;
+        ) as Promise<{
+          plan: NutritionPlan | null;
+          daily_norm: DailyNorm | null;
+        }>;
       }),
 
     generatePlan: protectedProcedure
@@ -263,7 +269,9 @@ export const appRouter = router({
             method: "DELETE",
             headers: {
               "Content-Type": "application/json",
-              ...(ctx.req.headers.cookie ? { Cookie: ctx.req.headers.cookie } : {}),
+              ...(ctx.req.headers.cookie
+                ? { Cookie: ctx.req.headers.cookie }
+                : {}),
             },
           }
         );
@@ -272,6 +280,16 @@ export const appRouter = router({
           throw new Error(`FastAPI error ${res.status}: ${text}`);
         }
         return { success: true } as const;
+      }),
+
+    toggleConsumed: protectedProcedure
+      .input(z.object({ itemId: z.number(), consumed: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        return apiRequest(`/api/nutrition/plan/item/${input.itemId}/consumed`, {
+          method: "PATCH",
+          body: { consumed: input.consumed },
+          cookie: ctx.req.headers.cookie,
+        }) as Promise<PlanItem>;
       }),
 
     getDiary: protectedProcedure

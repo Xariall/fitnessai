@@ -46,8 +46,7 @@ export default function Nutrition() {
       setShowModal(false);
       utils.nutrition.getPlan.invalidate({ date: activeDate });
     },
-    onError: (err) => {
-      // Try to extract FastAPI detail from the error message JSON
+    onError: err => {
       const match = err.message.match(/"detail"\s*:\s*"([^"]+)"/);
       if (match) {
         toast.error(match[1]);
@@ -69,6 +68,11 @@ export default function Nutrition() {
     onError: () => toast.error("Не удалось удалить блюдо."),
   });
 
+  const toggleConsumedMutation = trpc.nutrition.toggleConsumed.useMutation({
+    onSuccess: () => utils.nutrition.getPlan.invalidate({ date: activeDate }),
+    onError: () => toast.error("Не удалось обновить статус."),
+  });
+
   const plan = planQuery.data?.plan ?? null;
   const dailyNorm = planQuery.data?.daily_norm ?? null;
 
@@ -82,30 +86,40 @@ export default function Nutrition() {
   if (loading || !isAuthenticated) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-dark relative overflow-hidden flex flex-col">
-      {/* Background orbs */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-purple-600 to-purple-800 rounded-full blur-3xl opacity-10 animate-float" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-br from-cyan-500 to-purple-600 rounded-full blur-3xl opacity-10 animate-float-reverse" />
+    <div className="min-h-screen bg-[#0f0a1e] relative overflow-hidden flex flex-col">
+      {/* Ambient background orbs */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none select-none">
+        <div className="absolute -top-56 -right-56 w-[500px] h-[500px] bg-purple-700 rounded-full blur-[120px] opacity-[0.07]" />
+        <div className="absolute top-1/2 -left-40 w-[400px] h-[400px] bg-indigo-600 rounded-full blur-[100px] opacity-[0.06]" />
+        <div className="absolute -bottom-60 right-1/3 w-[460px] h-[460px] bg-violet-800 rounded-full blur-[110px] opacity-[0.05]" />
       </div>
 
       {/* Header */}
-      <header className="relative z-10 w-full border-b border-white/5 backdrop-blur-sm">
-        <div className="max-w-3xl mx-auto px-4 md:px-6 py-4 flex items-center gap-4">
+      <header className="relative z-10 w-full border-b border-white/[0.05] bg-[#0f0a1e]/80 backdrop-blur-md sticky top-0">
+        <div className="max-w-3xl mx-auto px-4 md:px-6 py-4 flex items-center gap-3">
           <button
             onClick={() => navigate("/dashboard")}
-            className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition-all"
+            className="w-9 h-9 rounded-xl bg-white/[0.05] border border-white/[0.08] hover:bg-white/[0.09] flex items-center justify-center text-white/50 hover:text-white transition-all duration-200"
           >
             <ChevronLeft size={18} />
           </button>
+
           <div className="flex-1">
-            <h1 className="text-lg font-bold text-white">Питание</h1>
+            <h1 className="text-base font-bold text-white tracking-tight">
+              Питание
+            </h1>
+            {plan && (
+              <p className="text-[11px] text-white/30 mt-0.5">
+                {mealEntries.length} приёмов пищи
+              </p>
+            )}
           </div>
+
           {plan && (
             <button
               onClick={() => setShowModal(true)}
               title="Перегенерировать план"
-              className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-purple-300 transition-all"
+              className="w-9 h-9 rounded-xl bg-white/[0.05] border border-white/[0.08] hover:bg-purple-500/10 hover:border-purple-500/30 flex items-center justify-center text-white/40 hover:text-purple-300 transition-all duration-200"
             >
               <RefreshCw size={15} />
             </button>
@@ -113,49 +127,72 @@ export default function Nutrition() {
         </div>
       </header>
 
-      {/* Main */}
+      {/* Main content */}
       <main className="relative z-10 flex-1 w-full max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
-        {/* Day selector */}
+        {/* Weekly calendar strip */}
         <DayTabs activeDate={activeDate} onDateChange={setActiveDate} />
 
-        {/* Loading */}
+        {/* Loading skeleton */}
         {planQuery.isLoading ? (
-          <div className="space-y-3">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[1, 2, 3, 4].map(i => (
+                <div
+                  key={i}
+                  className="h-44 rounded-2xl bg-white/[0.04] border border-white/[0.06] animate-pulse"
+                />
+              ))}
+            </div>
             {[1, 2, 3].map(i => (
-              <div key={i} className="glass h-28 rounded-2xl border border-white/5 animate-pulse" />
+              <div
+                key={i}
+                className="h-20 rounded-2xl bg-white/[0.03] border border-white/[0.06] animate-pulse"
+              />
             ))}
           </div>
         ) : plan === null ? (
           /* Empty state */
-          <div className="glass p-10 rounded-2xl border border-white/10 flex flex-col items-center gap-5 text-center animate-slide-in-up">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/30 to-cyan-500/20 border border-white/10 flex items-center justify-center">
-              <Sparkles size={28} className="text-purple-300" />
+          <div className="flex flex-col items-center gap-6 py-16 text-center">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500/20 to-violet-600/10 border border-purple-500/20 flex items-center justify-center">
+                <Sparkles size={32} className="text-purple-300" />
+              </div>
+              <div className="absolute inset-0 rounded-2xl blur-xl bg-purple-500/10" />
             </div>
+
             <div>
-              <h2 className="text-xl font-bold text-white mb-2">Нет плана на этот день</h2>
-              <p className="text-white/40 text-sm max-w-xs">
-                Пусть AI составит персональный план питания на основе вашей нормы КБЖУ
+              <h2 className="text-xl font-bold text-white mb-2">
+                Нет плана на этот день
+              </h2>
+              <p className="text-sm text-white/35 max-w-xs leading-relaxed">
+                Пусть AI составит персональный план питания на основе вашей
+                нормы КБЖУ
               </p>
             </div>
+
             <button
               onClick={() => setShowModal(true)}
-              className="btn-primary flex items-center gap-2"
+              className="flex items-center gap-2.5 px-6 py-3 rounded-2xl bg-purple-600 hover:bg-purple-500 border border-purple-500/50 text-white font-semibold text-sm shadow-[0_4px_20px_rgba(168,85,247,0.4)] hover:shadow-[0_4px_28px_rgba(168,85,247,0.55)] transition-all duration-200 active:scale-[0.97]"
             >
               <Sparkles size={16} />
               Сгенерировать план
             </button>
           </div>
         ) : (
-          <>
-            {/* КБЖУ summary */}
-            <NutritionSummary
-              plan={plan}
-              dailyNorm={dailyNorm}
-              diary={diaryQuery.data}
-            />
+          <div className="space-y-6">
+            {/* Macro rings */}
+            <NutritionSummary plan={plan} dailyNorm={dailyNorm} />
+
+            {/* Section label */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-white/30 uppercase tracking-widest">
+                Приёмы пищи
+              </span>
+              <div className="flex-1 h-px bg-white/[0.05]" />
+            </div>
 
             {/* Meal cards */}
-            <div className="space-y-4 animate-slide-in-up">
+            <div className="space-y-3">
               {mealEntries.map(({ mealType, items }) => (
                 <MealCard
                   key={mealType}
@@ -164,14 +201,18 @@ export default function Nutrition() {
                   onUpdateItem={(itemId, weightG) =>
                     updateMutation.mutate({ itemId, weightG })
                   }
-                  onDeleteItem={itemId =>
-                    deleteMutation.mutate({ itemId })
+                  onDeleteItem={itemId => deleteMutation.mutate({ itemId })}
+                  onToggleConsumed={(itemId, consumed) =>
+                    toggleConsumedMutation.mutate({ itemId, consumed })
                   }
                   isUpdating={updateMutation.isPending}
+                  defaultOpen={["breakfast", "lunch", "dinner"].includes(
+                    mealType
+                  )}
                 />
               ))}
             </div>
-          </>
+          </div>
         )}
       </main>
 
@@ -179,7 +220,9 @@ export default function Nutrition() {
         date={activeDate}
         open={showModal}
         onClose={() => setShowModal(false)}
-        onGenerate={notes => generateMutation.mutate({ date: activeDate, notes })}
+        onGenerate={notes =>
+          generateMutation.mutate({ date: activeDate, notes })
+        }
         isLoading={generateMutation.isPending}
       />
     </div>

@@ -378,6 +378,7 @@ async def get_nutrition_plan(user_id: int, date: str) -> dict | None:
                 "fat": item.fat,
                 "carbs": item.carbs,
                 "order_index": item.order_index,
+                "consumed": item.consumed,
             })
         return {
             "id": plan.id,
@@ -577,6 +578,36 @@ async def delete_meal_plan_item(item_id: int) -> bool:
         )
         await session.commit()
         return result.rowcount > 0
+
+
+async def toggle_plan_item_consumed(item_id: int, consumed: bool) -> dict | None:
+    """Toggle the consumed flag on a meal plan item."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(MealPlanItem).where(MealPlanItem.id == item_id)
+        )
+        item = result.scalar_one_or_none()
+        if not item:
+            return None
+        await session.execute(
+            update(MealPlanItem)
+            .where(MealPlanItem.id == item_id)
+            .values(consumed=consumed)
+        )
+        await session.commit()
+        return {
+            "id": item.id,
+            "plan_id": item.plan_id,
+            "meal_type": item.meal_type,
+            "product_name": item.product_name,
+            "weight_g": item.weight_g,
+            "calories": item.calories,
+            "protein": item.protein,
+            "fat": item.fat,
+            "carbs": item.carbs,
+            "order_index": item.order_index,
+            "consumed": consumed,
+        }
 
 
 async def create_food_product(
