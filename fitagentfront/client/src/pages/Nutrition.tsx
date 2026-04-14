@@ -47,7 +47,15 @@ export default function Nutrition() {
       utils.nutrition.getPlan.invalidate({ date: activeDate });
     },
     onError: (err) => {
-      toast.error(err.message.includes("500") ? "Агент не смог составить план. Попробуйте ещё раз." : err.message);
+      // Try to extract FastAPI detail from the error message JSON
+      const match = err.message.match(/"detail"\s*:\s*"([^"]+)"/);
+      if (match) {
+        toast.error(match[1]);
+      } else if (err.message.includes("500")) {
+        toast.error("Агент не смог составить план. Попробуйте ещё раз.");
+      } else {
+        toast.error(err.message);
+      }
     },
   });
 

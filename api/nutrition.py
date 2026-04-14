@@ -111,31 +111,46 @@ async def generate_plan(
     user: User = Depends(get_current_user),
 ) -> dict:
     """Запустить агента для генерации плана питания на указанный день."""
+    # Pre-check: profile must be complete before running the agent
+    daily_norm = await db.calculate_daily_norm(user.id)
+    if daily_norm is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Для генерации плана питания заполните профиль: "
+                "вес, рост, возраст, пол, уровень активности и цель."
+            ),
+        )
+
     notes_part = f"Пожелания: {body.notes}. " if body.notes.strip() else ""
     prompt = (
         f"Составь план питания на {body.date} для пользователя. "
         f"{notes_part}"
-        f"Сначала используй calculate_daily_norm чтобы узнать норму КБЖУ. "
-        f"Затем используй create_nutrition_plan чтобы сохранить план. "
+        f"Дневная норма уже рассчитана: "
+        f"{daily_norm['target_calories']} ккал, "
+        f"Б {daily_norm['protein_g']}г, Ж {daily_norm['fat_g']}г, У {daily_norm['carbs_g']}г. "
+        f"Используй create_nutrition_plan чтобы сохранить план. "
         f"Обязательные параметры: user_id={user.id}, date='{body.date}', notes='{body.notes}'. "
         f"Параметр meals_json — это JSON-строка (не список!) со всеми блюдами для приёмов пищи "
         f"breakfast, lunch, dinner, snack. Формат: "
         f'"[{{\\"meal_type\\":\\"breakfast\\",\\"product_name\\":\\"Овсянка\\",\\"weight_g\\":100,'
         f'\\"calories\\":350,\\"protein\\":12,\\"fat\\":6,\\"carbs\\":60}}]". '
-        f"Каждое блюдо должно иметь поля: meal_type, product_name, weight_g, calories, protein, fat, carbs."
+        f"Каждое блюдо должно иметь поля: meal_type, product_name, weight_g, calories, protein, fat, carbs. "
+        f"Составь 2-3 блюда на каждый приём пищи, суммарно близко к норме калорий."
     )
     # Use a unique thread per attempt so MemorySaver never replays stale messages
     thread_id = f"nutplan_{user.id}_{body.date}_{uuid.uuid4().hex[:8]}"
     try:
-        await _run_agent(user.id, thread_id, prompt)
+        agent_reply = await _run_agent(user.id, thread_id, prompt)
+        logger.info("Agent reply for plan generation (user=%s, date=%s): %.200s", user.id, body.date, agent_reply)
     except Exception:
-        logger.exception("Agent error during plan generation")
+        logger.exception("Agent error during plan generation (user=%s, date=%s)", user.id, body.date)
         raise HTTPException(500, "Ошибка при генерации плана. Попробуйте ещё раз.")
 
     plan = await db.get_nutrition_plan(user.id, body.date)
     if plan is None:
+        logger.error("Agent did not save plan (user=%s, date=%s). Reply: %.500s", user.id, body.date, agent_reply)
         raise HTTPException(500, "Агент не сохранил план. Попробуйте ещё раз.")
-    daily_norm = await db.calculate_daily_norm(user.id)
     return {"plan": plan, "daily_norm": daily_norm}
 
 
