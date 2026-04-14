@@ -87,7 +87,16 @@ export default function Dashboard() {
             className="flex items-center gap-3 group"
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-purple-500/40 group-hover:shadow-purple-500/60 transition-all duration-300">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M12 20v-8M6 20v-4M18 20v-12" />
               </svg>
             </div>
@@ -96,10 +105,16 @@ export default function Dashboard() {
 
           {/* Nav */}
           <nav className="hidden md:flex items-center gap-6">
-            <button onClick={() => navigate("/chat")} className="text-sm text-white/60 hover:text-white transition-colors">
+            <button
+              onClick={() => navigate("/chat")}
+              className="text-sm text-white/60 hover:text-white transition-colors"
+            >
               Чат
             </button>
-            <button onClick={() => navigate("/dashboard")} className="text-sm text-white font-medium">
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="text-sm text-white font-medium"
+            >
               Главная
             </button>
           </nav>
@@ -107,8 +122,12 @@ export default function Dashboard() {
           {/* User */}
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex flex-col items-end">
-              <span className="text-sm text-white font-medium leading-none">{user?.name || "Пользователь"}</span>
-              <span className="text-xs text-white/40 mt-0.5">{user?.email}</span>
+              <span className="text-sm text-white font-medium leading-none">
+                {user?.name || "Пользователь"}
+              </span>
+              <span className="text-xs text-white/40 mt-0.5">
+                {user?.email}
+              </span>
             </div>
             <button
               onClick={() => logout()}
@@ -143,14 +162,23 @@ export default function Dashboard() {
                 style={{ animationDelay: `${i * 0.1}s` }}
               >
                 <div className="flex items-start gap-4">
-                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${card.iconBg} border border-white/10 flex items-center justify-center flex-shrink-0 transition-transform duration-300 group-hover:scale-110`}>
+                  <div
+                    className={`w-12 h-12 rounded-xl bg-gradient-to-br ${card.iconBg} border border-white/10 flex items-center justify-center flex-shrink-0 transition-transform duration-300 group-hover:scale-110`}
+                  >
                     <Icon size={22} className={card.iconColor} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-bold text-white mb-1">{card.title}</h3>
-                    <p className="text-sm text-white/50 leading-relaxed">{card.desc}</p>
+                    <h3 className="text-lg font-bold text-white mb-1">
+                      {card.title}
+                    </h3>
+                    <p className="text-sm text-white/50 leading-relaxed">
+                      {card.desc}
+                    </p>
                   </div>
-                  <ChevronRight size={18} className="text-white/20 group-hover:text-white/60 group-hover:translate-x-1 transition-all duration-200 flex-shrink-0 mt-1" />
+                  <ChevronRight
+                    size={18}
+                    className="text-white/20 group-hover:text-white/60 group-hover:translate-x-1 transition-all duration-200 flex-shrink-0 mt-1"
+                  />
                 </div>
               </button>
             );
@@ -163,7 +191,9 @@ export default function Dashboard() {
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <span className="text-white/20 text-sm">&copy; 2026 FitAgent.</span>
+              <span className="text-white/20 text-sm">
+                &copy; 2026 FitAgent.
+              </span>
               <span className="text-white/20 text-sm">Все права защищены.</span>
             </div>
 
@@ -177,13 +207,25 @@ export default function Dashboard() {
             </div>
 
             <div className="flex items-center gap-3">
-              <a href="#" aria-label="Instagram" className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200">
+              <a
+                href="#"
+                aria-label="Instagram"
+                className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200"
+              >
                 <Instagram size={14} className="text-white/40" />
               </a>
-              <a href="#" aria-label="Twitter" className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200">
+              <a
+                href="#"
+                aria-label="Twitter"
+                className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200"
+              >
                 <Twitter size={14} className="text-white/40" />
               </a>
-              <a href="#" aria-label="GitHub" className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200">
+              <a
+                href="#"
+                aria-label="GitHub"
+                className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200"
+              >
                 <Github size={14} className="text-white/40" />
               </a>
             </div>
