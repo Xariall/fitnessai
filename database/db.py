@@ -359,6 +359,7 @@ async def get_nutrition_plan(user_id: int, date: str) -> dict | None:
             meal_type = item.meal_type or "other"
             meals.setdefault(meal_type, []).append({
                 "id": item.id,
+                "meal_type": item.meal_type,
                 "product_name": item.product_name,
                 "weight_g": item.weight_g,
                 "calories": item.calories,

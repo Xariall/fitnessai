@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from datetime import date as date_type
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -115,11 +116,16 @@ async def generate_plan(
         f"Составь план питания на {body.date} для пользователя. "
         f"{notes_part}"
         f"Сначала используй calculate_daily_norm чтобы узнать норму КБЖУ. "
-        f"Затем используй create_nutrition_plan чтобы сохранить план — "
-        f"передай user_id={user.id}, date='{body.date}', notes='{body.notes}' "
-        f"и список meals со всеми приёмами пищи (breakfast, lunch, dinner, snack)."
+        f"Затем используй create_nutrition_plan чтобы сохранить план. "
+        f"Обязательные параметры: user_id={user.id}, date='{body.date}', notes='{body.notes}'. "
+        f"Параметр meals_json — это JSON-строка (не список!) со всеми блюдами для приёмов пищи "
+        f"breakfast, lunch, dinner, snack. Формат: "
+        f'"[{{\\"meal_type\\":\\"breakfast\\",\\"product_name\\":\\"Овсянка\\",\\"weight_g\\":100,'
+        f'\\"calories\\":350,\\"protein\\":12,\\"fat\\":6,\\"carbs\\":60}}]". '
+        f"Каждое блюдо должно иметь поля: meal_type, product_name, weight_g, calories, protein, fat, carbs."
     )
-    thread_id = f"nutplan_{user.id}_{body.date}"
+    # Use a unique thread per attempt so MemorySaver never replays stale messages
+    thread_id = f"nutplan_{user.id}_{body.date}_{uuid.uuid4().hex[:8]}"
     try:
         await _run_agent(user.id, thread_id, prompt)
     except Exception:
