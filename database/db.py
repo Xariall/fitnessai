@@ -488,6 +488,103 @@ async def update_plan_item(item_id: int, weight_g: float) -> dict | None:
         }
 
 
+async def calculate_daily_norm(user_id: int) -> dict | None:
+    user = await get_user_by_id(user_id)
+    if not user or not all([user.weight, user.height, user.age, user.gender, user.activity, user.goal]):
+        return None
+    weight, height, age = user.weight, user.height, user.age
+    gender, activity, goal = user.gender, user.activity, user.goal
+    if gender == "male":
+        bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5
+    else:
+        bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161
+    multipliers = {"sedentary": 1.2, "moderate": 1.375, "active": 1.55, "athlete": 1.725}
+    tdee = bmr * multipliers.get(activity, 1.2)
+    adjustments = {"lose": 0.85, "gain": 1.15, "maintain": 1.0, "recomposition": 1.0}
+    target = tdee * adjustments.get(goal, 1.0)
+    protein = weight * 2.0
+    fat = weight * 1.0
+    carbs = max((target - (protein * 4) - (fat * 9)) / 4, 50.0)
+    return {
+        "bmr": round(bmr),
+        "tdee": round(tdee),
+        "target_calories": round(target),
+        "protein_g": round(protein),
+        "fat_g": round(fat),
+        "carbs_g": round(carbs),
+    }
+
+
+async def add_meal_plan_item(
+    plan_id: int,
+    meal_type: str | None,
+    product_name: str,
+    weight_g: float,
+    calories: float,
+    protein: float,
+    fat: float,
+    carbs: float,
+) -> dict:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(func.max(MealPlanItem.order_index)).where(MealPlanItem.plan_id == plan_id)
+        )
+        max_idx = result.scalar() or 0
+        item = MealPlanItem(
+            plan_id=plan_id,
+            meal_type=meal_type,
+            product_name=product_name,
+            weight_g=weight_g,
+            calories=calories,
+            protein=protein,
+            fat=fat,
+            carbs=carbs,
+            order_index=max_idx + 1,
+        )
+        session.add(item)
+        await session.commit()
+        await session.refresh(item)
+        return {
+            "id": item.id,
+            "plan_id": item.plan_id,
+            "meal_type": item.meal_type,
+            "product_name": item.product_name,
+            "weight_g": item.weight_g,
+            "calories": item.calories,
+            "protein": item.protein,
+            "fat": item.fat,
+            "carbs": item.carbs,
+            "order_index": item.order_index,
+        }
+
+
+async def delete_meal_plan_item(item_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            delete(MealPlanItem).where(MealPlanItem.id == item_id)
+        )
+        await session.commit()
+        return result.rowcount > 0
+
+
+async def create_food_product(
+    name: str, calories: float, protein: float, fat: float, carbs: float
+) -> dict:
+    async with AsyncSessionLocal() as session:
+        product = FoodProduct(name=name, calories=calories, protein=protein, fat=fat, carbs=carbs)
+        session.add(product)
+        await session.commit()
+        await session.refresh(product)
+        return {
+            "id": product.id,
+            "name": product.name,
+            "calories": product.calories,
+            "protein": product.protein,
+            "fat": product.fat,
+            "carbs": product.carbs,
+        }
+
+
 # ── Conversations & messages ──────────────────────────────────────────────────
 
 async def create_conversation(user_id: int, title: str = "Новый чат") -> Conversation:

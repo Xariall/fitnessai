@@ -22,6 +22,7 @@ from slowapi.util import get_remote_address
 from agent.graph import cleanup, get_graph
 from agent.prompts import SYSTEM_PROMPT
 from api.auth import get_current_user, router as auth_router
+from api.nutrition import router as nutrition_router
 from api.schemas import ChatRequest, ConversationCreate, UserProfileUpdate, WaitlistSignup
 from database.db import (
     add_message,
@@ -77,11 +78,12 @@ def _make_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[o.strip() for o in allowed_origins],
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "Authorization"],
     )
 
     app.include_router(auth_router)
+    app.include_router(nutrition_router)
     return app
 
 
