@@ -272,6 +272,17 @@ async def search_food(query: str) -> list[dict]:
         ]
 
 
+async def get_all_foods() -> list[dict]:
+    """Return all products from food_products table."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(FoodProduct))
+        return [
+            {"id": p.id, "name": p.name, "calories": p.calories,
+             "protein": p.protein, "fat": p.fat, "carbs": p.carbs}
+            for p in result.scalars()
+        ]
+
+
 # ── Food diary ────────────────────────────────────────────────────────────────
 
 async def log_meal(

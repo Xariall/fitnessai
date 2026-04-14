@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 from datetime import date as date_type
 
@@ -79,6 +80,82 @@ async def _generate_meals(daily_norm: dict, notes: str) -> list[dict]:
     return json.loads(response.text)
 
 
+async def _generate_meals_algorithmic(daily_norm: dict, notes: str) -> list[dict]:  # noqa: ARG001
+    """Build a meal plan deterministically from the food_products table.
+
+    Products are classified by their macro profile and selected with
+    random.choice. Portion weights are back-calculated so each meal
+    hits its target calorie fraction.
+
+    Args:
+        daily_norm: Output of db.calculate_daily_norm — contains
+            'target_calories', 'protein_g', 'fat_g', 'carbs_g'.
+        notes: User preferences string — reserved for future LLM-based
+            refinement, not used in algorithmic path.
+    """
+    # notes reserved for future LLM-based refinement
+
+    foods = await db.get_all_foods()
+    if not foods:
+        raise HTTPException(
+            status_code=422,
+            detail="База продуктов пуста, обратитесь к администратору",
+        )
+
+    # Classify products by macro profile (a product can be in multiple lists)
+    protein_foods = [f for f in foods if f["protein"] >= 15]
+    carb_foods    = [f for f in foods if f["carbs"] >= 40]
+    veggies       = [f for f in foods if f["calories"] < 50]
+    fat_foods     = [f for f in foods if f["fat"] >= 15]
+
+    # Fallback: use full list if a category is empty
+    if not protein_foods:
+        protein_foods = foods
+    if not carb_foods:
+        carb_foods = foods
+    if not veggies:
+        veggies = foods
+    if not fat_foods:
+        fat_foods = foods
+
+    target = daily_norm["target_calories"]
+
+    # meal_type → (fraction_of_daily_target, [list_of_category_lists])
+    meal_structure: list[tuple[str, float, list[list[dict]]]] = [
+        ("breakfast", 0.25, [carb_foods, protein_foods]),
+        ("lunch",     0.35, [protein_foods, carb_foods, veggies]),
+        ("dinner",    0.30, [protein_foods, veggies]),
+        ("snack",     0.10, [random.choice([protein_foods, carb_foods])]),
+    ]
+
+    meals: list[dict] = []
+    for meal_type, fraction, categories in meal_structure:
+        meal_calories = target * fraction
+        num_items = len(categories)
+        item_calories = meal_calories / num_items
+
+        for category in categories:
+            product = random.choice(category)
+            # Avoid division by zero for zero-calorie products
+            cal_per_100 = product["calories"] if product["calories"] > 0 else 1.0
+            weight_g = (item_calories / cal_per_100) * 100
+            ratio = weight_g / 100.0
+
+            meals.append({
+                "meal_type":    meal_type,
+                "product_name": product["name"],
+                "weight_g":     int(round(weight_g, 0)),
+                "calories":     round(product["calories"] * ratio, 1),
+                "protein":      round(product["protein"]  * ratio, 1),
+                "fat":          round(product["fat"]      * ratio, 1),
+                "carbs":        round(product["carbs"]    * ratio, 1),
+            })
+
+    total_cal = sum(m["calories"] for m in meals)
+    logger.info("Algorithmic plan built: %d meals, %.0f kcal total", len(meals), total_cal)
+    return meals
+
+
 def _parse_nutrition_json(text: str) -> dict | None:
     """Try to extract {calories, protein, fat, carbs} from LLM reply."""
     try:
@@ -143,7 +220,7 @@ async def generate_plan(
         )
 
     try:
-        meals = await _generate_meals(daily_norm, body.notes)
+        meals = await _generate_meals_algorithmic(daily_norm, body.notes)
     except Exception as exc:
         logger.exception("LLM meal generation failed (user=%s, date=%s)", user.id, body.date)
         # Include exception type in detail so Railway logs show in the frontend error toast
@@ -157,7 +234,7 @@ async def generate_plan(
         date=body.date,
         meals=meals,
         notes=body.notes or None,
-        generated_by="llm",
+        generated_by="algorithmic",
     )
     return {"plan": plan, "daily_norm": daily_norm}
 
