@@ -20,33 +20,115 @@ _EXCLUSION_STOPWORDS = {
     "по", "или", "но", "при", "ещё", "еще", "всё", "все", "кроме",
 }
 
+# Maps category/group words → keywords that appear in product names.
+# When a user writes "без рыбы", all products whose name contains any of
+# the listed keywords are excluded.
+_CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    # fish & seafood
+    "рыба":      ["тунец", "лосось", "сёмга", "семга", "скумбрия", "треска",
+                  "минтай", "горбуша", "сардина", "форель", "хек", "судак",
+                  "карп", "окунь", "килька", "шпрот", "анчоус", "дорадо",
+                  "сибас", "пикша", "навага", "камбала", "рыба"],
+    "морепродукты": ["креветк", "кальмар", "осьминог", "мидий", "краб",
+                     "омар", "гребешок", "морепродукт"],
+    # meat
+    "мясо":      ["говядин", "говяж", "свинин", "свиной", "баранин", "телятин",
+                  "кролик", "индейк", "утк", "гусь", "оленин", "конин",
+                  "фарш", "мясо"],
+    "курица":    ["куриц", "куриная", "курин", "цыплён"],
+    "птица":     ["куриц", "куриная", "курин", "индейк", "утк", "гусь",
+                  "цыплён", "перепел"],
+    # dairy
+    "молочное":  ["молок", "кефир", "ряженк", "простоквашь", "йогурт",
+                  "творог", "сметан", "сливк", "масл", "сыр", "пармезан",
+                  "моцарелл", "рикотт", "брынз"],
+    "молоко":    ["молок", "кефир", "ряженк"],
+    "сыр":       ["сыр", "пармезан", "моцарелл", "рикотт", "брынз", "фет"],
+    # eggs
+    "яйца":      ["яйц", "яйко", "яичн"],
+    # grains & legumes
+    "крупы":     ["гречк", "овсянк", "рис", "пшен", "ячмен", "перловк",
+                  "манк", "кукурузн", "булгур", "кускус", "полба"],
+    "бобовые":   ["фасол", "нут", "чечевиц", "горох", "соя", "маш", "эдамам"],
+    "глютен":    ["пшениц", "рожь", "ячмен", "манк", "булгур", "кускус",
+                  "макарон", "паст", "лапш", "хлеб", "батон", "булк",
+                  "сухар", "крекер", "муки", "мука"],
+    # vegetables & fruits
+    "овощи":     ["капуст", "морков", "помидор", "томат", "огурец", "перец",
+                  "кабачок", "баклажан", "свёкл", "свекл", "тыкв", "редис",
+                  "сельдерей", "шпинат", "листь", "зелень", "укроп", "петрушк"],
+    "фрукты":    ["яблок", "груш", "апельсин", "мандарин", "лимон", "банан",
+                  "виноград", "слив", "персик", "абрикос", "черешн", "вишн",
+                  "клубник", "малин", "черник", "голубик", "смородин"],
+    "ягоды":     ["клубник", "малин", "черник", "голубик", "смородин",
+                  "ежевик", "клюкв", "брусник", "вишн", "черешн"],
+    # nuts & seeds
+    "орехи":     ["арахис", "миндал", "грецк", "кешью", "фундук", "фисташк",
+                  "пекан", "макадами", "орех"],
+    "сладкое":   ["шоколад", "конфет", "торт", "пирог", "печень", "вафл",
+                  "мармелад", "зефир", "халв", "карамел", "сахар", "мёд", "мед"],
+}
+
+
+def _expand_token(token: str) -> list[str]:
+    """Return token + any category keywords it resolves to.
+
+    Checks _CATEGORY_KEYWORDS by exact key match and fuzzy key match
+    (handles genitive: "рыбы"→"рыба", "мяса"→"мясо").
+    """
+    expanded = [token]
+    for key, keywords in _CATEGORY_KEYWORDS.items():
+        # exact or prefix/suffix match on category key
+        if token == key or key.startswith(token) or token.startswith(key):
+            expanded.extend(keywords)
+            continue
+        # fuzzy match on key (handles "рыбы"→"рыба" 0.75, "орехов"→"орехи" 0.73)
+        if difflib.SequenceMatcher(None, token, key).ratio() >= 0.7:
+            expanded.extend(keywords)
+    return expanded
+
 
 def _token_matches_product(token: str, product_name: str, cutoff: float = 0.6) -> bool:
-    """Return True if token fuzzy-matches any individual word in product_name.
+    """Return True if token (or its category expansion) matches any word in product_name.
 
-    Compares token against each word separately (not the full name string) so
-    that "лук" matches "Лук репчатый" and "шоколада" matches "Шоколад тёмный".
-    prefix matching handles Russian genitive/accusative endings:
-    лука→лук, шоколада→шоколад.
-    cutoff=0.6 catches morphological variants like курицы→куриная (ratio≈0.615).
+    Two matching modes:
+    - Original token: fuzzy match (cutoff=0.6) + prefix, to handle inflected forms
+      like "курицы"→"куриная" or "шоколада"→"шоколад".
+    - Category keywords from _expand_token: prefix/substring only (no fuzzy), to
+      prevent false positives like "скумбрия"↔"куриная" (ratio=0.67).
     """
-    for word in product_name.lower().split():
+    name_words = product_name.lower().split()
+    expanded = _expand_token(token)
+    category_keywords = expanded[1:]  # everything after the original token
+
+    # 1. Original token — fuzzy allowed
+    for word in name_words:
         if token.startswith(word) or word.startswith(token):
             return True
         if difflib.SequenceMatcher(None, token, word).ratio() >= cutoff:
             return True
+
+    # 2. Category keywords — prefix/substring only, no fuzzy
+    name_lower = product_name.lower()
+    for kw in category_keywords:
+        if kw in name_lower:
+            return True
+        for word in name_words:
+            if kw.startswith(word) or word.startswith(kw):
+                return True
+
     return False
 
 
 def filter_excluded_products(notes: str, products: list[dict]) -> list[dict]:
     """Remove products mentioned as exclusions in the notes string.
 
-    Parses Russian free-form text like "без курицы и шоколада а также нут и лук".
-    Tokenises the notes, drops stopwords, then matches each remaining token
-    against individual words in product names (handles genitive endings and
-    multi-word names like "Куриная грудка", "Лук репчатый").
+    Handles both specific product names ("без нута") and category words
+    ("без рыбы" → excludes тунец, лосось, скумбрия …).
 
-    Returns the filtered products list. Logs every exclusion that was applied.
+    Tokenises the notes, drops stopwords, expands category tokens via
+    _CATEGORY_KEYWORDS, then matches against individual words in product
+    names (handles Russian genitive/accusative endings and multi-word names).
     """
     if not notes.strip():
         return products
@@ -67,7 +149,7 @@ def filter_excluded_products(notes: str, products: list[dict]) -> list[dict]:
                         product["name"],
                         candidate,
                     )
-                break  # one matching token is enough to exclude this product
+                break
 
     if not excluded_indices:
         return products
