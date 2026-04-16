@@ -137,6 +137,21 @@ async def _generate_meals_algorithmic(daily_norm: dict, notes: str) -> list[dict
             # Avoid division by zero for zero-calorie products
             cal_per_100 = product["calories"] if product["calories"] > 0 else 1.0
             weight_g = (item_calories / cal_per_100) * 100
+
+            # Clamp portion weight to sane limits based on macro profile
+            # Order matters: first match wins
+            if product["fat"] >= 15:
+                min_g, max_g = 10, 50        # nuts, oils
+            elif product["protein"] >= 15:
+                min_g, max_g = 50, 300       # meat, fish, eggs
+            elif product["carbs"] >= 40:
+                min_g, max_g = 30, 200       # grains, legumes
+            elif product["calories"] < 50:
+                min_g, max_g = 50, 300       # vegetables
+            else:
+                min_g, max_g = 50, 400       # default fallback
+            weight_g = max(min_g, min(weight_g, max_g))
+
             ratio = weight_g / 100.0
 
             meals.append({

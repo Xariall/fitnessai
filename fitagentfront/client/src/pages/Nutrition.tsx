@@ -42,9 +42,9 @@ export default function Nutrition() {
 
   const generateMutation = trpc.nutrition.generatePlan.useMutation({
     onSuccess: () => {
-      toast.success("План питания создан!");
+      toast.success("7-дневный план питания создан!");
       setShowModal(false);
-      utils.nutrition.getPlan.invalidate({ date: activeDate });
+      utils.nutrition.getPlan.invalidate();
     },
     onError: err => {
       const match = err.message.match(/"detail"\s*:\s*"([^"]+)"/);

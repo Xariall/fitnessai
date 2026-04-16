@@ -9,7 +9,13 @@ interface Props {
   isLoading: boolean;
 }
 
-export default function RegeneratePlanModal({ date, open, onClose, onGenerate, isLoading }: Props) {
+export default function RegeneratePlanModal({
+  date,
+  open,
+  onClose,
+  onGenerate,
+  isLoading,
+}: Props) {
   const [notes, setNotes] = useState("");
 
   if (!open) return null;
@@ -22,7 +28,10 @@ export default function RegeneratePlanModal({ date, open, onClose, onGenerate, i
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
 
       {/* Modal */}
       <div className="relative w-full max-w-md glass p-6 rounded-2xl border border-white/10 animate-slide-in-up">
@@ -53,11 +62,15 @@ export default function RegeneratePlanModal({ date, open, onClose, onGenerate, i
               disabled={isLoading}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-purple-500/60 transition-colors resize-none text-sm"
             />
-            <p className="text-right text-[11px] text-white/20 mt-1">{notes.length}/1000</p>
+            <p className="text-right text-[11px] text-white/20 mt-1">
+              {notes.length}/1000
+            </p>
           </div>
 
           <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-300">
-            AI составит полноценный план на день с учётом вашей нормы КБЖУ и пожеланий.
+            AI составит план на 7 дней с учётом вашей нормы КБЖУ и пожеланий.
+            Переключайтесь между днями в календаре — каждый день уже будет
+            заполнен.
           </div>
 
           <button
