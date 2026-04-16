@@ -15,6 +15,66 @@ from google.genai import types as genai_types
 logger = logging.getLogger(__name__)
 
 
+_EXCLUSION_STOPWORDS = {
+    "без", "и", "а", "также", "не", "нет", "с", "для", "на", "в", "из",
+    "по", "или", "но", "при", "ещё", "еще", "всё", "все", "кроме",
+}
+
+
+def _token_matches_product(token: str, product_name: str, cutoff: float = 0.6) -> bool:
+    """Return True if token fuzzy-matches any individual word in product_name.
+
+    Compares token against each word separately (not the full name string) so
+    that "лук" matches "Лук репчатый" and "шоколада" matches "Шоколад тёмный".
+    prefix matching handles Russian genitive/accusative endings:
+    лука→лук, шоколада→шоколад.
+    cutoff=0.6 catches morphological variants like курицы→куриная (ratio≈0.615).
+    """
+    for word in product_name.lower().split():
+        if token.startswith(word) or word.startswith(token):
+            return True
+        if difflib.SequenceMatcher(None, token, word).ratio() >= cutoff:
+            return True
+    return False
+
+
+def filter_excluded_products(notes: str, products: list[dict]) -> list[dict]:
+    """Remove products mentioned as exclusions in the notes string.
+
+    Parses Russian free-form text like "без курицы и шоколада а также нут и лук".
+    Tokenises the notes, drops stopwords, then matches each remaining token
+    against individual words in product names (handles genitive endings and
+    multi-word names like "Куриная грудка", "Лук репчатый").
+
+    Returns the filtered products list. Logs every exclusion that was applied.
+    """
+    if not notes.strip():
+        return products
+
+    tokens = re.findall(r"[а-яёa-z]{3,}", notes.lower())
+    candidates = [t for t in tokens if t not in _EXCLUSION_STOPWORDS]
+    if not candidates:
+        return products
+
+    excluded_indices: set[int] = set()
+    for i, product in enumerate(products):
+        for candidate in candidates:
+            if _token_matches_product(candidate, product["name"]):
+                if i not in excluded_indices:
+                    excluded_indices.add(i)
+                    logger.info(
+                        "Excluding product %r (matched notes token %r)",
+                        product["name"],
+                        candidate,
+                    )
+                break  # one matching token is enough to exclude this product
+
+    if not excluded_indices:
+        return products
+
+    return [p for i, p in enumerate(products) if i not in excluded_indices]
+
+
 def build_products_string(products: list[dict]) -> str:
     """Build a compact product catalogue string for the Gemini prompt.
 
@@ -59,19 +119,23 @@ async def gemini_generate_plan(
     system_prompt = (
         "Ты диетолог-ассистент. Составь 7-дневный план питания.\n"
         "Правила:\n"
-        "- Используй ТОЛЬКО продукты из списка\n"
+        "- Используй ТОЛЬКО продукты из списка — никаких других\n"
         "- Каждый день: breakfast, lunch, dinner, snack\n"
         "- breakfast: 2 продукта, lunch: 3, dinner: 2, snack: 1\n"
         "- Подбери вес порций чтобы сумма КБЖУ за день была близка к цели\n"
         "- Не повторяй один продукт в одном приёме пищи два дня подряд\n"
+        "- Пожелания пользователя (поле «Заметки») — ОБЯЗАТЕЛЬНЫ к исполнению: "
+        "если указано «без X» или «X» упомянут как нежелательный — "
+        "никогда не включай этот продукт ни в один день\n"
         "- Ответ ТОЛЬКО валидный JSON без markdown и пояснений"
     )
 
+    notes_line = f"Заметки (строго соблюдай): {notes}" if notes.strip() else "Заметки: нет"
     user_message = (
         f"Цель: {goal} | КБЖУ/день: {target}ккал, "
         f"Б:{daily_norm['protein_g']}г, Ж:{daily_norm['fat_g']}г, У:{daily_norm['carbs_g']}г\n"
         f"Продукты: {products_str}\n"
-        f"Заметки: {notes}"
+        f"{notes_line}"
     )
 
     # Gemini client is created per-call (project convention — no singleton)
@@ -190,7 +254,17 @@ async def generate_weekly_plan(
         product_id, product_name, weight_g, calories, protein, fat, carbs,
         meal_type, plan_date
     """
-    result = await gemini_generate_plan(daily_norm, products, notes)
+    # Strip excluded products from the catalogue before sending to Gemini.
+    # This is the primary guardrail — Gemini cannot pick a product it doesn't see.
+    filtered_products = filter_excluded_products(notes, products)
+    if len(filtered_products) < len(products):
+        logger.info(
+            "Product catalogue reduced from %d to %d after applying exclusions",
+            len(products),
+            len(filtered_products),
+        )
+
+    result = await gemini_generate_plan(daily_norm, filtered_products, notes)
     today = date.today()
     all_items: list[dict] = []
 
