@@ -15,10 +15,17 @@ from google.genai import types as genai_types
 logger = logging.getLogger(__name__)
 
 
-_EXCLUSION_STOPWORDS = {
-    "без", "и", "а", "также", "не", "нет", "с", "для", "на", "в", "из",
-    "по", "или", "но", "при", "ещё", "еще", "всё", "все", "кроме",
-}
+# Words that signal "exclude these products"
+_EXCLUSION_MARKERS = {"без", "исключить", "убрать", "исключи", "убери", "кроме"}
+
+# Words that signal "use ONLY these products" (whitelist mode)
+_INCLUSION_ONLY_MARKERS = {"только", "лишь", "исключительно"}
+
+# Connectors and prepositions filtered out of product-name candidates
+_TOKEN_STOPWORDS = {
+    "и", "а", "также", "не", "нет", "с", "для", "на", "в", "из",
+    "по", "или", "но", "при", "ещё", "еще", "всё", "все",
+} | _EXCLUSION_MARKERS | _INCLUSION_ONLY_MARKERS
 
 # Maps category/group words → keywords that appear in product names.
 # When a user writes "без рыбы", all products whose name contains any of
@@ -121,23 +128,63 @@ def _token_matches_product(token: str, product_name: str, cutoff: float = 0.6) -
 
 
 def filter_excluded_products(notes: str, products: list[dict]) -> list[dict]:
-    """Remove products mentioned as exclusions in the notes string.
+    """Filter the product catalogue based on user notes.
 
-    Handles both specific product names ("без нута") and category words
-    ("без рыбы" → excludes тунец, лосось, скумбрия …).
+    Detects one of three modes from the notes text:
 
-    Tokenises the notes, drops stopwords, expands category tokens via
-    _CATEGORY_KEYWORDS, then matches against individual words in product
-    names (handles Russian genitive/accusative endings and multi-word names).
+    - **blacklist** (triggered by "без", "исключить", "убрать" …):
+        removes products whose names match tokens in the notes.
+        "без рыбы и нута" → drops all fish products + нут.
+
+    - **whitelist** (triggered by "только", "лишь", "исключительно"):
+        keeps ONLY products whose names match tokens in the notes.
+        "только курица и рис" → drops everything except курица + рис.
+
+    - **passthrough** (no mode markers found):
+        returns the catalogue unchanged; notes are passed to Gemini as-is.
+
+    Both modes handle category words ("рыба" → тунец, лосось, …) and
+    Russian inflected forms ("курицы" → куриная, "риса" → рис).
     """
     if not notes.strip():
         return products
 
     tokens = re.findall(r"[а-яёa-z]{3,}", notes.lower())
-    candidates = [t for t in tokens if t not in _EXCLUSION_STOPWORDS]
+    has_exclusion = any(t in _EXCLUSION_MARKERS for t in tokens)
+    has_whitelist = any(t in _INCLUSION_ONLY_MARKERS for t in tokens)
+
+    # passthrough — no structural signal; let Gemini interpret the notes
+    if not has_exclusion and not has_whitelist:
+        return products
+
+    candidates = [t for t in tokens if t not in _TOKEN_STOPWORDS]
     if not candidates:
         return products
 
+    if has_whitelist and not has_exclusion:
+        # Whitelist mode: keep only products that match a candidate token
+        kept_indices: set[int] = set()
+        for i, product in enumerate(products):
+            for candidate in candidates:
+                if _token_matches_product(candidate, product["name"]):
+                    kept_indices.add(i)
+                    logger.info(
+                        "Whitelist: keeping product %r (matched token %r)",
+                        product["name"], candidate,
+                    )
+                    break
+
+        if not kept_indices:
+            # Safety: if nothing matched, don't wipe the whole catalogue
+            logger.warning("Whitelist mode matched no products; returning full catalogue")
+            return products
+
+        dropped = [p["name"] for i, p in enumerate(products) if i not in kept_indices]
+        if dropped:
+            logger.info("Whitelist: dropped %d products: %s", len(dropped), dropped)
+        return [p for i, p in enumerate(products) if i in kept_indices]
+
+    # Blacklist mode (default when exclusion markers present)
     excluded_indices: set[int] = set()
     for i, product in enumerate(products):
         for candidate in candidates:
@@ -145,9 +192,8 @@ def filter_excluded_products(notes: str, products: list[dict]) -> list[dict]:
                 if i not in excluded_indices:
                     excluded_indices.add(i)
                     logger.info(
-                        "Excluding product %r (matched notes token %r)",
-                        product["name"],
-                        candidate,
+                        "Blacklist: excluding product %r (matched token %r)",
+                        product["name"], candidate,
                     )
                 break
 
