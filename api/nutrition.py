@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 import database.db as db
 from api.auth import get_current_user
-from app.services.nutrition_planner import generate_weekly_plan
+from app.services.nutrition_planner import filter_excluded_products, generate_weekly_plan
 from database.models import User
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,11 @@ def _genai_client() -> genai_sdk.Client:
 
 
 # algorithmic fallback — used when Gemini is unavailable
-async def _generate_meals_algorithmic(daily_norm: dict, notes: str) -> list[dict]:  # noqa: ARG001
+async def _generate_meals_algorithmic(
+    daily_norm: dict,
+    notes: str,  # noqa: ARG001
+    foods: list[dict] | None = None,
+) -> list[dict]:
     """Build a meal plan deterministically from the food_products table.
 
     Products are classified by their macro profile and selected with
@@ -88,12 +92,12 @@ async def _generate_meals_algorithmic(daily_norm: dict, notes: str) -> list[dict
     Args:
         daily_norm: Output of db.calculate_daily_norm — contains
             'target_calories', 'protein_g', 'fat_g', 'carbs_g'.
-        notes: User preferences string — reserved for future LLM-based
-            refinement, not used in algorithmic path.
+        notes: User preferences string — not used in algorithmic path,
+            exclusions are applied by the caller via filter_excluded_products.
+        foods: Pre-filtered product list. If None, all foods are loaded from DB.
     """
-    # notes reserved for future LLM-based refinement
-
-    foods = await db.get_all_foods()
+    if foods is None:
+        foods = await db.get_all_foods()
     if not foods:
         raise HTTPException(
             status_code=422,
@@ -245,7 +249,8 @@ async def generate_plan(
             user.id, exc,
         )
         try:
-            meals = await _generate_meals_algorithmic(daily_norm, body.notes)
+            fallback_products = filter_excluded_products(body.notes, products)
+            meals = await _generate_meals_algorithmic(daily_norm, body.notes, fallback_products)
         except Exception as fallback_exc:
             logger.exception("Fallback algorithmic generation also failed (user=%s)", user.id)
             raise HTTPException(
