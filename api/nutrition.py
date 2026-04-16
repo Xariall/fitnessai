@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 import database.db as db
 from api.auth import get_current_user
+from app.services.nutrition_planner import generate_weekly_plan
 from database.models import User
 
 logger = logging.getLogger(__name__)
@@ -51,39 +52,32 @@ def _genai_client() -> genai_sdk.Client:
     return genai_sdk.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
-async def _generate_meals(daily_norm: dict, notes: str) -> list[dict]:
-    """Call Gemini in JSON mode to get a structured meal plan.
-
-    Uses google.genai SDK directly with response_mime_type='application/json'
-    so the model is guaranteed to return valid JSON — no regex needed.
-    """
-    notes_line = f"\nПожелания пользователя: {notes}" if notes.strip() else ""
-    prompt = (
-        f"Составь план питания на один день. Целевая норма:{notes_line}\n"
-        f"- Калории: {daily_norm['target_calories']} ккал\n"
-        f"- Белки: {daily_norm['protein_g']} г\n"
-        f"- Жиры: {daily_norm['fat_g']} г\n"
-        f"- Углеводы: {daily_norm['carbs_g']} г\n\n"
-        f"Верни JSON-массив блюд. Каждый элемент:\n"
-        f'{{"meal_type":"breakfast","product_name":"Название","weight_g":100,'
-        f'"calories":300,"protein":15,"fat":8,"carbs":40}}\n\n'
-        f"meal_type только: breakfast, lunch, dinner, snack.\n"
-        f"2-3 блюда на breakfast/lunch/dinner, 1-2 на snack. "
-        f"Суммарные калории ≈ {daily_norm['target_calories']} ккал."
-    )
-    # Use gemini-2.0-flash (non-thinking) for JSON mode — thinking models
-    # may produce unparseable content when response_mime_type is set.
-    client = _genai_client()
-    response = await client.aio.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            response_mime_type="application/json",
-        ),
-    )
-    return json.loads(response.text)
+# legacy — single-day Gemini prompt, replaced by generate_weekly_plan() in nutrition_planner.py
+# async def _generate_meals(daily_norm: dict, notes: str) -> list[dict]:
+#     notes_line = f"\nПожелания пользователя: {notes}" if notes.strip() else ""
+#     prompt = (
+#         f"Составь план питания на один день. Целевая норма:{notes_line}\n"
+#         f"- Калории: {daily_norm['target_calories']} ккал\n"
+#         f"- Белки: {daily_norm['protein_g']} г\n"
+#         f"- Жиры: {daily_norm['fat_g']} г\n"
+#         f"- Углеводы: {daily_norm['carbs_g']} г\n\n"
+#         f"Верни JSON-массив блюд. Каждый элемент:\n"
+#         f'{{"meal_type":"breakfast","product_name":"Название","weight_g":100,'
+#         f'"calories":300,"protein":15,"fat":8,"carbs":40}}\n\n'
+#         f"meal_type только: breakfast, lunch, dinner, snack.\n"
+#         f"2-3 блюда на breakfast/lunch/dinner, 1-2 на snack. "
+#         f"Суммарные калории ≈ {daily_norm['target_calories']} ккал."
+#     )
+#     client = _genai_client()
+#     response = await client.aio.models.generate_content(
+#         model="gemini-2.0-flash",
+#         contents=prompt,
+#         config=genai_types.GenerateContentConfig(response_mime_type="application/json"),
+#     )
+#     return json.loads(response.text)
 
 
+# algorithmic fallback — used when Gemini is unavailable
 async def _generate_meals_algorithmic(daily_norm: dict, notes: str) -> list[dict]:  # noqa: ARG001
     """Build a meal plan deterministically from the food_products table.
 
@@ -211,7 +205,7 @@ async def generate_plan(
     body: GeneratePlanBody,
     user: User = Depends(get_current_user),
 ) -> dict:
-    """Генерирует план питания через прямой вызов Gemini (без agent loop)."""
+    """Генерирует 7-дневный план питания через Gemini; при сбое — алгоритмический fallback."""
     # Pre-check: profile must be complete
     daily_norm = await db.calculate_daily_norm(user.id)
     if daily_norm is None:
@@ -223,23 +217,64 @@ async def generate_plan(
             ),
         )
 
+    products = await db.get_all_foods()
+
+    # ── Generation: Gemini → algorithmic fallback ──────────────────────────────
+    weekly: bool = False
     try:
-        meals = await _generate_meals_algorithmic(daily_norm, body.notes)
+        meals = await generate_weekly_plan(daily_norm, products, body.notes)
+        weekly = True
     except Exception as exc:
-        logger.exception("LLM meal generation failed (user=%s, date=%s)", user.id, body.date)
-        # Include exception type in detail so Railway logs show in the frontend error toast
-        raise HTTPException(500, f"Ошибка генерации: {type(exc).__name__}: {exc}")
+        logger.warning(
+            "Gemini meal generation failed (user=%s), falling back to algorithmic: %s",
+            user.id, exc,
+        )
+        try:
+            meals = await _generate_meals_algorithmic(daily_norm, body.notes)
+        except Exception as fallback_exc:
+            logger.exception("Fallback algorithmic generation also failed (user=%s)", user.id)
+            raise HTTPException(
+                500, f"Ошибка генерации: {type(fallback_exc).__name__}: {fallback_exc}"
+            )
 
     if not meals:
         raise HTTPException(500, "Модель вернула пустой план. Попробуйте ещё раз.")
 
-    plan = await db.create_nutrition_plan(
-        user_id=user.id,
-        date=body.date,
-        meals=meals,
-        notes=body.notes or None,
-        generated_by="algorithmic",
-    )
+    # ── Persist ────────────────────────────────────────────────────────────────
+    if weekly:
+        # Group by plan_date and save each day separately
+        meals_by_date: dict[str, list[dict]] = {}
+        for item in meals:
+            key = (
+                item["plan_date"].isoformat()
+                if hasattr(item["plan_date"], "isoformat")
+                else str(item["plan_date"])
+            )
+            meals_by_date.setdefault(key, []).append(item)
+
+        for plan_date_str, day_meals in meals_by_date.items():
+            await db.create_nutrition_plan(
+                user_id=user.id,
+                date=plan_date_str,
+                meals=day_meals,
+                notes=body.notes or None,
+                generated_by="gemini",
+            )
+
+        # Return the plan for the requested date (first day if not in range)
+        plan = await db.get_nutrition_plan(user.id, body.date)
+        if plan is None and meals_by_date:
+            first_date = sorted(meals_by_date.keys())[0]
+            plan = await db.get_nutrition_plan(user.id, first_date)
+    else:
+        plan = await db.create_nutrition_plan(
+            user_id=user.id,
+            date=body.date,
+            meals=meals,
+            notes=body.notes or None,
+            generated_by="algorithmic",
+        )
+
     return {"plan": plan, "daily_norm": daily_norm}
 
 
