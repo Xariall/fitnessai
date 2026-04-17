@@ -34,7 +34,7 @@ export default function RegeneratePlanModal({
 }: Props) {
   const [notes, setNotes] = useState("");
   const [selectedMeals, setSelectedMeals] = useState<Set<MealType>>(
-    new Set(["breakfast", "lunch", "dinner", "snack"])
+    new Set<MealType>(["breakfast", "lunch", "dinner", "snack"])
   );
 
   if (!open) return null;

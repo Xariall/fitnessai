@@ -9,6 +9,7 @@ import DayTabs from "@/components/nutrition/DayTabs";
 import NutritionSummary from "@/components/nutrition/NutritionSummary";
 import MealCard from "@/components/nutrition/MealCard";
 import RegeneratePlanModal from "@/components/nutrition/RegeneratePlanModal";
+import NutritionAssistant, { NutritionAssistantFAB } from "@/components/nutrition/NutritionAssistant";
 
 function todayISO(): string {
   const d = new Date();
@@ -23,6 +24,7 @@ export default function Nutrition() {
 
   const [activeDate, setActiveDate] = useState(todayISO);
   const [showModal, setShowModal] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) navigate("/");
@@ -229,6 +231,15 @@ export default function Nutrition() {
         }
         isLoading={generateMutation.isPending}
       />
+
+      {/* RAG Nutrition Assistant */}
+      <NutritionAssistant
+        open={showAssistant}
+        onClose={() => setShowAssistant(false)}
+      />
+      {!showAssistant && (
+        <NutritionAssistantFAB onClick={() => setShowAssistant(true)} />
+      )}
     </div>
   );
 }
