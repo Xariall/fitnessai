@@ -169,17 +169,36 @@ def build_products_string(products: list[dict]) -> str:
 
 # ── Gemini call ───────────────────────────────────────────────────────────────
 
+_DEFAULT_MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"]
+
+
+def _build_meals_line(meal_types: list[str], cfg: LanguageConfig) -> str:
+    """Build the 'meal structure' line injected into the Gemini user message.
+
+    Example output: "breakfast (завтрак, 2 блюда), lunch (обед, 3 блюда), dinner (ужин, 2 блюда)"
+    """
+    parts = []
+    for mt in meal_types:
+        count = cfg.meal_item_counts.get(mt, 2)
+        label = cfg.meal_labels.get(mt, mt)
+        noun = "блюдо" if count == 1 else "блюда" if count in (2, 3, 4) else "блюд"
+        parts.append(f"{mt} ({label}, {count} {noun})")
+    return ", ".join(parts)
+
+
 async def gemini_generate_plan(
     daily_norm: dict,
     products: list[dict],
     notes: str,
     lang: str = "ru",
+    meal_types: list[str] | None = None,
 ) -> dict:
     """Make a single async Gemini call and return the parsed 7-day plan dict.
 
     All prompt strings come from the LanguageConfig — no hardcoded Russian text.
     """
     cfg = get_config(lang)
+    meal_types = meal_types or _DEFAULT_MEAL_TYPES
 
     target = daily_norm["target_calories"]
     tdee   = daily_norm["tdee"]
@@ -203,6 +222,7 @@ async def gemini_generate_plan(
         protein=daily_norm["protein_g"],
         fat=daily_norm["fat_g"],
         carbs=daily_norm["carbs_g"],
+        meals_line=_build_meals_line(meal_types, cfg),
         products=build_products_string(products),
         notes_line=notes_line,
     )
@@ -297,6 +317,7 @@ async def generate_weekly_plan(
     products: list[dict],
     notes: str,
     lang: str = "ru",
+    meal_types: list[str] | None = None,
 ) -> list[dict]:
     """Generate a 7-day meal plan via Gemini.
 
@@ -309,7 +330,9 @@ async def generate_weekly_plan(
 
     Pass lang="kk" (or any registered code) to switch the full pipeline to
     that language — markers, categories, and prompt all switch automatically.
+    Pass meal_types=["lunch","dinner"] to generate a plan without breakfast/snack.
     """
+    meal_types = meal_types or _DEFAULT_MEAL_TYPES
     filtered = filter_excluded_products(notes, products, lang=lang)
     if len(filtered) < len(products):
         logger.info(
@@ -317,7 +340,7 @@ async def generate_weekly_plan(
             len(products), len(filtered),
         )
 
-    result = await gemini_generate_plan(daily_norm, filtered, notes, lang=lang)
+    result = await gemini_generate_plan(daily_norm, filtered, notes, lang=lang, meal_types=meal_types)
     today = date.today()
     all_items: list[dict] = []
 

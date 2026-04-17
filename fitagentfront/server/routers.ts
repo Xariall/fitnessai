@@ -219,11 +219,29 @@ export const appRouter = router({
       }),
 
     generatePlan: protectedProcedure
-      .input(z.object({ date: z.string(), notes: z.string().optional() }))
+      .input(
+        z.object({
+          date: z.string(),
+          notes: z.string().optional(),
+          meal_types: z
+            .array(z.enum(["breakfast", "lunch", "dinner", "snack"]))
+            .min(1)
+            .optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         return apiRequest("/api/nutrition/plan/generate", {
           method: "POST",
-          body: { date: input.date, notes: input.notes ?? "" },
+          body: {
+            date: input.date,
+            notes: input.notes ?? "",
+            meal_types: input.meal_types ?? [
+              "breakfast",
+              "lunch",
+              "dinner",
+              "snack",
+            ],
+          },
           cookie: ctx.req.headers.cookie,
         }) as Promise<{ plan: NutritionPlan; daily_norm: DailyNorm | null }>;
       }),

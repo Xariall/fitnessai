@@ -26,9 +26,21 @@ router = APIRouter(prefix="/api/nutrition", tags=["nutrition"])
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+_VALID_MEAL_TYPES = frozenset({"breakfast", "lunch", "dinner", "snack"})
+_DEFAULT_MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"]
+
+
 class GeneratePlanBody(BaseModel):
     date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     notes: str = Field(default="", max_length=1000)
+    meal_types: list[str] = Field(default_factory=lambda: list(_DEFAULT_MEAL_TYPES))
+
+    @property
+    def valid_meal_types(self) -> list[str]:
+        """Return only known meal types in canonical order."""
+        order = list(_DEFAULT_MEAL_TYPES)
+        seen = [m for m in order if m in self.meal_types]
+        return seen or list(_DEFAULT_MEAL_TYPES)
 
 
 class UpdateItemBody(BaseModel):
@@ -77,11 +89,21 @@ def _genai_client() -> genai_sdk.Client:
 #     return json.loads(response.text)
 
 
+# Base fractions and category templates per meal type
+_ALGO_MEAL_BASE_FRACTIONS: dict[str, float] = {
+    "breakfast": 0.25,
+    "lunch":     0.35,
+    "dinner":    0.30,
+    "snack":     0.10,
+}
+
+
 # algorithmic fallback — used when Gemini is unavailable
 async def _generate_meals_algorithmic(
     daily_norm: dict,
     notes: str,  # noqa: ARG001
     foods: list[dict] | None = None,
+    meal_types: list[str] | None = None,
 ) -> list[dict]:
     """Build a meal plan deterministically from the food_products table.
 
@@ -90,11 +112,13 @@ async def _generate_meals_algorithmic(
     hits its target calorie fraction.
 
     Args:
-        daily_norm: Output of db.calculate_daily_norm — contains
-            'target_calories', 'protein_g', 'fat_g', 'carbs_g'.
-        notes: User preferences string — not used in algorithmic path,
-            exclusions are applied by the caller via filter_excluded_products.
-        foods: Pre-filtered product list. If None, all foods are loaded from DB.
+        daily_norm:  Output of db.calculate_daily_norm — contains
+                     'target_calories', 'protein_g', 'fat_g', 'carbs_g'.
+        notes:       User preferences string — not used in algorithmic path,
+                     exclusions are applied by the caller via filter_excluded_products.
+        foods:       Pre-filtered product list. If None, all foods are loaded from DB.
+        meal_types:  Which meal types to include. Defaults to all four.
+                     Calorie fractions are renormalized to always sum to 1.
     """
     if foods is None:
         foods = await db.get_all_foods()
@@ -104,30 +128,41 @@ async def _generate_meals_algorithmic(
             detail="База продуктов пуста, обратитесь к администратору",
         )
 
+    active_meals = meal_types or list(_DEFAULT_MEAL_TYPES)
+
     # Classify products by macro profile (a product can be in multiple lists)
     protein_foods = [f for f in foods if f["protein"] >= 15]
     carb_foods    = [f for f in foods if f["carbs"] >= 40]
     veggies       = [f for f in foods if f["calories"] < 50]
-    fat_foods     = [f for f in foods if f["fat"] >= 15]
 
     # Fallback: use full list if a category is empty
-    if not protein_foods:
-        protein_foods = foods
-    if not carb_foods:
-        carb_foods = foods
-    if not veggies:
-        veggies = foods
-    if not fat_foods:
-        fat_foods = foods
+    if not protein_foods: protein_foods = foods
+    if not carb_foods:    carb_foods = foods
+    if not veggies:       veggies = foods
 
     target = daily_norm["target_calories"]
 
+    # Renormalize fractions so they always sum to 1 regardless of which meals are selected
+    raw_fractions = {m: _ALGO_MEAL_BASE_FRACTIONS.get(m, 0.25) for m in active_meals}
+    total_fraction = sum(raw_fractions.values()) or 1.0
+    fractions = {m: f / total_fraction for m, f in raw_fractions.items()}
+
+    # Categories per meal type
+    def _meal_categories(meal_type: str) -> list[list[dict]]:
+        if meal_type == "breakfast":
+            return [carb_foods, protein_foods]
+        if meal_type == "lunch":
+            return [protein_foods, carb_foods, veggies]
+        if meal_type == "dinner":
+            return [protein_foods, veggies]
+        if meal_type == "snack":
+            return [random.choice([protein_foods, carb_foods])]
+        return [protein_foods]
+
     # meal_type → (fraction_of_daily_target, [list_of_category_lists])
     meal_structure: list[tuple[str, float, list[list[dict]]]] = [
-        ("breakfast", 0.25, [carb_foods, protein_foods]),
-        ("lunch",     0.35, [protein_foods, carb_foods, veggies]),
-        ("dinner",    0.30, [protein_foods, veggies]),
-        ("snack",     0.10, [random.choice([protein_foods, carb_foods])]),
+        (m, fractions[m], _meal_categories(m))
+        for m in active_meals
     ]
 
     meals: list[dict] = []
@@ -237,11 +272,12 @@ async def generate_plan(
         )
 
     products = await db.get_all_foods()
+    meal_types = body.valid_meal_types
 
     # ── Generation: Gemini → algorithmic fallback ──────────────────────────────
     weekly: bool = False
     try:
-        meals = await generate_weekly_plan(daily_norm, products, body.notes)
+        meals = await generate_weekly_plan(daily_norm, products, body.notes, meal_types=meal_types)
         weekly = True
     except Exception as exc:
         logger.warning(
@@ -250,7 +286,9 @@ async def generate_plan(
         )
         try:
             fallback_products = filter_excluded_products(body.notes, products)
-            meals = await _generate_meals_algorithmic(daily_norm, body.notes, fallback_products)
+            meals = await _generate_meals_algorithmic(
+                daily_norm, body.notes, fallback_products, meal_types=meal_types
+            )
         except Exception as fallback_exc:
             logger.exception("Fallback algorithmic generation also failed (user=%s)", user.id)
             raise HTTPException(

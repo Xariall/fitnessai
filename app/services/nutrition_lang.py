@@ -46,17 +46,25 @@ class LanguageConfig:
     # Localized goal labels keyed by internal code.
     goal_labels: dict[str, str]  # keys: "lose" | "gain" | "maintain"
 
+    # Localized meal-type labels (used when building the meals-structure line).
+    # Keys are the internal English codes; values are the localized names.
+    meal_labels: dict[str, str]  # e.g. {"breakfast": "завтрак", "lunch": "обед", ...}
+
+    # Default number of dish items per meal type.
+    meal_item_counts: dict[str, int]  # e.g. {"breakfast": 2, "lunch": 3, ...}
+
     # Full system prompt sent to Gemini (static — no interpolation needed).
     system_prompt: str
 
     # User message template. Available placeholders:
-    #   {goal}      — localized goal label
-    #   {calories}  — target kcal/day (int)
-    #   {protein}   — grams of protein (int)
-    #   {fat}       — grams of fat (int)
-    #   {carbs}     — grams of carbs (int)
-    #   {products}  — compact product catalogue string
-    #   {notes_line}— formatted notes line (see notes_present / notes_absent)
+    #   {goal}       — localized goal label
+    #   {calories}   — target kcal/day (int)
+    #   {protein}    — grams of protein (int)
+    #   {fat}        — grams of fat (int)
+    #   {carbs}      — grams of carbs (int)
+    #   {meals_line} — "breakfast — 2 блюда, lunch — 3 блюда, …"
+    #   {products}   — compact product catalogue string
+    #   {notes_line} — formatted notes line (see notes_present / notes_absent)
     user_message_tpl: str
 
     # How to format the notes line when the user provided notes.
@@ -164,13 +172,26 @@ _RU_GOAL_LABELS: dict[str, str] = {
     "maintain": "поддержание веса",  # kk: салмақты сақтау
 }
 
+_RU_MEAL_LABELS: dict[str, str] = {
+    "breakfast": "завтрак",  # kk: таңғы ас
+    "lunch":     "обед",     # kk: түскі ас
+    "dinner":    "ужин",     # kk: кешкі ас
+    "snack":     "перекус",  # kk: аралық тамақ
+}
+
+_RU_MEAL_ITEM_COUNTS: dict[str, int] = {
+    "breakfast": 2,
+    "lunch":     3,
+    "dinner":    2,
+    "snack":     1,
+}
+
 _RU_SYSTEM_PROMPT = (
     "Ты диетолог-ассистент. Составь 7-дневный план питания.\n"
     "Правила:\n"
     "- Используй ТОЛЬКО продукты из списка — никаких других\n"
-    "- Каждый день: breakfast, lunch, dinner, snack\n"
-    "- breakfast: 2 продукта, lunch: 3, dinner: 2, snack: 1\n"
-    "- Подбери вес порций чтобы сумма КБЖУ за день была близка к цели\n"
+    "- Строго соблюдай структуру приёмов пищи из поля «Структура дня»\n"
+    "- Подбери вес порций так, чтобы сумма КБЖУ за день была близка к цели\n"
     "- Не повторяй один продукт в одном приёме пищи два дня подряд\n"
     "- Пожелания пользователя (поле «Заметки») — ОБЯЗАТЕЛЬНЫ к исполнению: "
     "если указано «без X» или «X» упомянут как нежелательный — "
@@ -182,9 +203,10 @@ _RU_SYSTEM_PROMPT = (
 _RU_USER_MESSAGE_TPL = (
     "Цель: {goal} | КБЖУ/день: {calories}ккал, "
     "Б:{protein}г, Ж:{fat}г, У:{carbs}г\n"
+    "Структура дня: {meals_line}\n"
     "Продукты: {products}\n"
     "{notes_line}"
-    # kk: translate labels (Цель→Мақсат, КБЖУ→КБЖМ, Продукты→Өнімдер, etc.)
+    # kk: translate labels (Цель→Мақсат, КБЖУ→КБЖМ, Структура дня→Күн құрылымы, Продукты→Өнімдер, etc.)
 )
 
 RU = LanguageConfig(
@@ -194,6 +216,8 @@ RU = LanguageConfig(
     token_stopwords=_RU_TOKEN_STOPWORDS,
     category_keywords=_RU_CATEGORY_KEYWORDS,
     goal_labels=_RU_GOAL_LABELS,
+    meal_labels=_RU_MEAL_LABELS,
+    meal_item_counts=_RU_MEAL_ITEM_COUNTS,
     system_prompt=_RU_SYSTEM_PROMPT,
     user_message_tpl=_RU_USER_MESSAGE_TPL,
     notes_present_tpl="Заметки (строго соблюдай): {notes}",  # kk: Ескертпелер (міндетті түрде орында): {notes}

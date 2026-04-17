@@ -220,8 +220,12 @@ export default function Nutrition() {
         date={activeDate}
         open={showModal}
         onClose={() => setShowModal(false)}
-        onGenerate={notes =>
-          generateMutation.mutate({ date: activeDate, notes })
+        onGenerate={(notes, mealTypes) =>
+          generateMutation.mutate({
+            date: activeDate,
+            notes,
+            meal_types: mealTypes,
+          })
         }
         isLoading={generateMutation.isPending}
       />
