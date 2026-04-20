@@ -10,6 +10,7 @@ import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import Nutrition from "./pages/Nutrition";
 import WorkoutPlan from "./pages/WorkoutPlan";
+import Progress from "./pages/Progress";
 
 function Router() {
   return (
@@ -20,6 +21,7 @@ function Router() {
       <Route path={"/dashboard"} component={Dashboard} />
       <Route path={"/nutrition"} component={Nutrition} />
       <Route path={"/workout-plan"} component={WorkoutPlan} />
+      <Route path={"/progress"} component={Progress} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

@@ -371,6 +371,43 @@ export const appRouter = router({
         }) as Promise<{ success: boolean }>;
       }),
   }),
+
+  // ── Progress ──────────────────────────────────────────────────────────────
+  progress: router({
+    getSummary: protectedProcedure.query(async ({ ctx }) => {
+      return apiRequest("/api/progress/summary", {
+        cookie: ctx.req.headers.cookie,
+      }) as Promise<{
+        current_weight: number | null;
+        weight_change_90d: number | null;
+        total_workouts: number;
+        weight_history: Array<{ weight: number; logged_at: string }>;
+        recent_workouts: Array<{
+          id: number;
+          exercise: string;
+          sets: number;
+          reps: number;
+          weight_kg: number | null;
+          logged_at: string;
+        }>;
+        profile: {
+          goal: string | null;
+          height: number | null;
+          activity: string | null;
+        };
+      }>;
+    }),
+
+    logWeight: protectedProcedure
+      .input(z.object({ weight: z.number().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        return apiRequest("/api/progress/weight", {
+          method: "POST",
+          body: { weight: input.weight },
+          cookie: ctx.req.headers.cookie,
+        }) as Promise<{ success: boolean; weight: number }>;
+      }),
+  }),
 });
 
 // ── Workout types ─────────────────────────────────────────────────────────────
