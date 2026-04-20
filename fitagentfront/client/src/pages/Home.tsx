@@ -84,7 +84,7 @@ export default function Home() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <path d="M12 20v-8M6 20v-4M18 20v-12" />
+                <path d="M6.5 6.5h11M6.5 17.5h11M4 9.5v5M20 9.5v5M2 11v2M22 11v2" />
               </svg>
             </div>
             <span className="text-xl font-bold text-white">FitAgent</span>
