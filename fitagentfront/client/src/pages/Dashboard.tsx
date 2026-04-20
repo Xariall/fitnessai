@@ -11,6 +11,7 @@ import {
   Instagram,
   Twitter,
   Github,
+  Send,
 } from "lucide-react";
 
 const CARDS = [
@@ -198,31 +199,37 @@ export default function Dashboard() {
             </div>
 
             <div className="flex items-center gap-6">
-              <button className="text-xs text-white/30 hover:text-white/60 transition-colors">
+              <button
+                onClick={() => navigate("/privacy")}
+                className="text-xs text-white/30 hover:text-white/60 transition-colors"
+              >
                 Политика конфиденциальности
               </button>
-              <button className="text-xs text-white/30 hover:text-white/60 transition-colors">
+              <button
+                onClick={() => navigate("/terms")}
+                className="text-xs text-white/30 hover:text-white/60 transition-colors"
+              >
                 Условия использования
               </button>
             </div>
 
             <div className="flex items-center gap-3">
               <a
-                href="#"
+                href="https://www.instagram.com/stewi_k/"
                 aria-label="Instagram"
                 className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200"
               >
                 <Instagram size={14} className="text-white/40" />
               </a>
               <a
-                href="#"
-                aria-label="Twitter"
+                href="https://t.me/Xariello"
+                aria-label="Telegram"
                 className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200"
               >
-                <Twitter size={14} className="text-white/40" />
+                <Send size={14} className="text-white/40" />
               </a>
               <a
-                href="#"
+                href="https://github.com/Xariall"
                 aria-label="GitHub"
                 className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 flex items-center justify-center transition-all duration-200"
               >

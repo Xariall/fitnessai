@@ -11,6 +11,8 @@ import Dashboard from "./pages/Dashboard";
 import Nutrition from "./pages/Nutrition";
 import WorkoutPlan from "./pages/WorkoutPlan";
 import Progress from "./pages/Progress";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 
 function Router() {
   return (
@@ -22,6 +24,8 @@ function Router() {
       <Route path={"/nutrition"} component={Nutrition} />
       <Route path={"/workout-plan"} component={WorkoutPlan} />
       <Route path={"/progress"} component={Progress} />
+      <Route path={"/privacy"} component={Privacy} />
+      <Route path={"/terms"} component={Terms} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
