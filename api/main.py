@@ -23,6 +23,7 @@ from agent.graph import cleanup, get_graph
 from agent.prompts import SYSTEM_PROMPT
 from api.auth import get_current_user, router as auth_router
 from api.nutrition import router as nutrition_router
+from api.workout import router as workout_router
 from api.schemas import ChatRequest, ConversationCreate, UserProfileUpdate, WaitlistSignup
 from database.db import (
     add_message,
@@ -84,6 +85,7 @@ def _make_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(nutrition_router)
+    app.include_router(workout_router)
     return app
 
 

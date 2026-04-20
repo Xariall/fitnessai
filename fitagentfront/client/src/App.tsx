@@ -9,6 +9,7 @@ import Chat from "./pages/Chat";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import Nutrition from "./pages/Nutrition";
+import WorkoutPlan from "./pages/WorkoutPlan";
 
 function Router() {
   return (
@@ -18,6 +19,7 @@ function Router() {
       <Route path={"/onboarding"} component={Onboarding} />
       <Route path={"/dashboard"} component={Dashboard} />
       <Route path={"/nutrition"} component={Nutrition} />
+      <Route path={"/workout-plan"} component={WorkoutPlan} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

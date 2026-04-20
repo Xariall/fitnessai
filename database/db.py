@@ -213,6 +213,40 @@ async def get_workout_programs(user_id: str) -> list[dict]:
         ]
 
 
+async def get_workout_program_by_id(program_id: int, user_id: int) -> dict | None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(WorkoutProgram)
+            .where(WorkoutProgram.id == program_id, WorkoutProgram.user_id == user_id)
+        )
+        p = result.scalar_one_or_none()
+        if not p:
+            return None
+        return {
+            "id": p.id,
+            "name": p.name,
+            "goal": p.goal,
+            "level": p.level,
+            "days_per_week": p.days_per_week,
+            "program_json": p.program_json,
+            "created_at": p.created_at.isoformat(),
+        }
+
+
+async def delete_workout_program(program_id: int, user_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(WorkoutProgram)
+            .where(WorkoutProgram.id == program_id, WorkoutProgram.user_id == user_id)
+        )
+        p = result.scalar_one_or_none()
+        if not p:
+            return False
+        await session.delete(p)
+        await session.commit()
+        return True
+
+
 # ── Workout logs ─────────────────────────────────────────────────────────────
 
 async def log_workout(

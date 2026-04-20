@@ -337,6 +337,64 @@ export const appRouter = router({
         }>;
       }),
   }),
+
+  // ── Workout programs ──────────────────────────────────────────────────────
+  workout: router({
+    getActive: protectedProcedure.query(async ({ ctx }) => {
+      return apiRequest("/api/workout-programs/active", {
+        cookie: ctx.req.headers.cookie,
+      }) as Promise<WorkoutProgram | null>;
+    }),
+
+    getAll: protectedProcedure.query(async ({ ctx }) => {
+      return apiRequest("/api/workout-programs", {
+        cookie: ctx.req.headers.cookie,
+      }) as Promise<WorkoutProgram[]>;
+    }),
+
+    generate: protectedProcedure
+      .input(z.object({ days_per_week: z.number().min(1).max(7).default(3) }))
+      .mutation(async ({ input, ctx }) => {
+        return apiRequest("/api/workout-programs/generate", {
+          method: "POST",
+          body: { days_per_week: input.days_per_week },
+          cookie: ctx.req.headers.cookie,
+        }) as Promise<WorkoutProgram>;
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ programId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        return apiRequest(`/api/workout-programs/${input.programId}`, {
+          method: "DELETE",
+          cookie: ctx.req.headers.cookie,
+        }) as Promise<{ success: boolean }>;
+      }),
+  }),
 });
+
+// ── Workout types ─────────────────────────────────────────────────────────────
+type WorkoutExercise = {
+  name: string;
+  description: string;
+  sets: number;
+  reps: string;
+  weight: string;
+  rest: string;
+};
+
+type WorkoutDayPlan = WorkoutExercise[];
+
+type WorkoutProgram = {
+  id: number;
+  name: string;
+  goal: string | null;
+  level: string | null;
+  level_label?: string;
+  days_per_week: number | null;
+  program_json: string;
+  program?: Record<string, WorkoutDayPlan>;
+  created_at: string;
+};
 
 export type AppRouter = typeof appRouter;
