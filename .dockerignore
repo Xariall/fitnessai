@@ -21,7 +21,6 @@ fitagentfront/node_modules
 fitagentfront/.next
 fitagentfront/dist
 
-chroma_db
 *.db
 
 *.md

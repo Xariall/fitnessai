@@ -129,12 +129,16 @@ def _friendly_error(e: Exception) -> str:
 async def _run_agent(user_id: int, conversation_id: int, user_message: str, conv_title: str = "") -> str:
     graph = await get_graph()
     thread_id = str(conversation_id)
+    config = {"configurable": {"thread_id": thread_id}}
 
-    # Inject system prompt only on first message in this conversation
-    is_first = await get_and_set_system_msg_flag(conversation_id)
+    # Inject system prompt when LangGraph thread has no state yet.
+    # MemorySaver is in-memory: cleared on every restart, so we check
+    # the actual thread state instead of a DB flag to survive redeploys.
+    state = await graph.aget_state(config)
+    needs_system = not state.values.get("messages")
 
     messages = []
-    if is_first:
+    if needs_system:
         is_nutrition = "Ассистент по питанию" in conv_title
         prompt = NUTRITION_SYSTEM_PROMPT if is_nutrition else SYSTEM_PROMPT
         messages.append(SystemMessage(
@@ -142,7 +146,6 @@ async def _run_agent(user_id: int, conversation_id: int, user_message: str, conv
         ))
     messages.append(HumanMessage(content=user_message))
 
-    config = {"configurable": {"thread_id": thread_id}}
     response = await graph.ainvoke({"messages": messages}, config=config)
     return _extract_text(response)
 
