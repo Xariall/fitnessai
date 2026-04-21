@@ -28,6 +28,13 @@ TOPIC_MAP = {
     "injuries.md": "injuries",
     "nutrition_science.md": "nutrition",
     "special_populations.md": "special_populations",
+    "calories_and_macros.md": "nutrition",
+    "diet_types.md": "nutrition",
+    "meal_plans.md": "nutrition",
+    "micronutrients_and_vitamins.md": "nutrition",
+    "nutrition_for_health_conditions.md": "nutrition",
+    "sports_nutrition_and_supplements.md": "nutrition",
+    "weight_loss_and_mass_gain.md": "nutrition",
 }
 
 
@@ -99,24 +106,38 @@ def load_documents() -> list[dict]:
 
 
 def embed_texts(texts: list[str], api_key: str) -> list[list[float]]:
-    """Generate embeddings via Gemini text-embedding-004."""
+    """Generate embeddings via Gemini text-embedding-004 with retry on rate limit."""
     from google import genai
 
     client = genai.Client(api_key=api_key)
     embeddings: list[list[float]] = []
 
-    batch_size = 20
+    batch_size = 5
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        for text in batch:
-            result = client.models.embed_content(
-                model="models/gemini-embedding-001",
-                contents=text,
-            )
-            embeddings.append(result.embeddings[0].values)
-
-        if i + batch_size < len(texts):
+        for j, text in enumerate(batch):
+            for attempt in range(6):
+                try:
+                    result = client.models.embed_content(
+                        model="models/gemini-embedding-001",
+                        contents=text,
+                    )
+                    embeddings.append(result.embeddings[0].values)
+                    break
+                except Exception as e:
+                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                        wait = 10 * (2 ** attempt)
+                        print(f"  Rate limit, retrying in {wait}s... (chunk {i + j + 1}/{len(texts)})")
+                        time.sleep(wait)
+                    else:
+                        raise
+            else:
+                raise RuntimeError(f"Failed to embed chunk {i + j} after 6 retries")
             time.sleep(0.5)
+
+        print(f"  Embedded {min(i + batch_size, len(texts))}/{len(texts)} chunks")
+        if i + batch_size < len(texts):
+            time.sleep(2)
 
     return embeddings
 
