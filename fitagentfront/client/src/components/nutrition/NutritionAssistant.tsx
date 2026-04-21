@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Send, X, PenSquare, ChevronDown, MessageSquare } from "lucide-react";
+import {
+  Bot,
+  Send,
+  X,
+  PenSquare,
+  ChevronDown,
+  MessageSquare,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -41,8 +48,11 @@ export default function NutritionAssistant({ open, onClose }: Props) {
   });
 
   // All nutrition conversations (by title prefix)
-  const nutritionConvs = (conversationsQuery.data ?? []).filter(c =>
-    c.title.includes("питанию") || c.title.includes("Nutrition") || c.title.startsWith("🥗")
+  const nutritionConvs = (conversationsQuery.data ?? []).filter(
+    c =>
+      c.title.includes("питанию") ||
+      c.title.includes("Nutrition") ||
+      c.title.startsWith("🥗")
   );
 
   const messagesQuery = trpc.chat.getMessages.useQuery(
@@ -78,15 +88,18 @@ export default function NutritionAssistant({ open, onClose }: Props) {
     if (!conversationsQuery.data) return;
     if (conversationId !== null) return; // already have one
 
-    const existing = conversationsQuery.data.find(c =>
-      c.title.includes("питанию") || c.title.includes("Nutrition") || c.title.startsWith("🥗")
+    const existing = conversationsQuery.data.find(
+      c =>
+        c.title.includes("питанию") ||
+        c.title.includes("Nutrition") ||
+        c.title.startsWith("🥗")
     );
     if (existing) {
       setConversationId(existing.id);
     } else {
       createConv.mutate({ title: CONV_TITLE });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, conversationsQuery.data]);
 
   function handleNewChat() {
@@ -143,16 +156,14 @@ export default function NutritionAssistant({ open, onClose }: Props) {
   }
 
   const allMessages: Message[] = [
-    ...(messagesQuery.data ?? []).filter(
+    ...((messagesQuery.data ?? []).filter(
       m => m.role === "user" || m.role === "assistant"
-    ) as Message[],
+    ) as Message[]),
     ...optimisticMessages,
   ];
 
   const isEmpty =
-    !messagesQuery.isLoading &&
-    allMessages.length === 0 &&
-    !isSending;
+    !messagesQuery.isLoading && allMessages.length === 0 && !isSending;
 
   return (
     <>
@@ -181,8 +192,12 @@ export default function NutritionAssistant({ open, onClose }: Props) {
               <Bot size={16} className="text-purple-300" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{ASSISTANT_TITLE}</p>
-              <p className="text-[11px] text-white/30">RAG · на основе науки о питании</p>
+              <p className="text-sm font-semibold text-white truncate">
+                {ASSISTANT_TITLE}
+              </p>
+              <p className="text-[11px] text-white/30">
+                RAG · на основе науки о питании
+              </p>
             </div>
             {/* New chat */}
             <button
@@ -205,7 +220,10 @@ export default function NutritionAssistant({ open, onClose }: Props) {
                     : "bg-white/[0.04] border-white/[0.07] text-white/40 hover:text-white hover:bg-white/[0.09]",
                 ].join(" ")}
               >
-                <ChevronDown size={13} className={`transition-transform duration-200 ${showHistory ? "rotate-180" : ""}`} />
+                <ChevronDown
+                  size={13}
+                  className={`transition-transform duration-200 ${showHistory ? "rotate-180" : ""}`}
+                />
               </button>
             )}
             <button
@@ -230,7 +248,10 @@ export default function NutritionAssistant({ open, onClose }: Props) {
                       : "bg-white/[0.03] border border-white/[0.06] text-white/60 hover:text-white hover:bg-white/[0.07]",
                   ].join(" ")}
                 >
-                  <MessageSquare size={12} className="flex-shrink-0 text-purple-400/70" />
+                  <MessageSquare
+                    size={12}
+                    className="flex-shrink-0 text-purple-400/70"
+                  />
                   <span className="text-xs truncate">{c.title}</span>
                 </button>
               ))}
@@ -265,7 +286,8 @@ export default function NutritionAssistant({ open, onClose }: Props) {
                   Привет! Я ваш нутри-ассистент
                 </p>
                 <p className="text-xs text-white/35 leading-relaxed max-w-[220px]">
-                  Задайте любой вопрос о питании — я отвечу на основе научной базы знаний
+                  Задайте любой вопрос о питании — я отвечу на основе научной
+                  базы знаний
                 </p>
               </div>
               {/* Suggestion chips */}
@@ -282,9 +304,7 @@ export default function NutritionAssistant({ open, onClose }: Props) {
               </div>
             </div>
           ) : (
-            allMessages.map(msg => (
-              <MessageBubble key={msg.id} msg={msg} />
-            ))
+            allMessages.map(msg => <MessageBubble key={msg.id} msg={msg} />)
           )}
 
           {/* Typing indicator */}
@@ -361,7 +381,9 @@ function MessageBubble({ msg }: { msg: Message }) {
         ].join(" ")}
       >
         <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-        <p className={`text-[10px] mt-1 ${isUser ? "text-purple-300/50" : "text-white/25"}`}>
+        <p
+          className={`text-[10px] mt-1 ${isUser ? "text-purple-300/50" : "text-white/25"}`}
+        >
           {new Date(msg.created_at).toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
