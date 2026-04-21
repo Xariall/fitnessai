@@ -6,7 +6,6 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
-chroma_db/
 
 # Node / fitagentfront
 fitagentfront/node_modules/
