@@ -20,7 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from agent.graph import cleanup, get_graph
-from agent.prompts import SYSTEM_PROMPT
+from agent.prompts import SYSTEM_PROMPT, NUTRITION_SYSTEM_PROMPT
 from api.auth import get_current_user, router as auth_router
 from api.nutrition import router as nutrition_router
 from api.workout import router as workout_router
@@ -126,7 +126,7 @@ def _friendly_error(e: Exception) -> str:
     return "Произошла ошибка. Попробуйте ещё раз."
 
 
-async def _run_agent(user_id: int, conversation_id: int, user_message: str) -> str:
+async def _run_agent(user_id: int, conversation_id: int, user_message: str, conv_title: str = "") -> str:
     graph = await get_graph()
     thread_id = str(conversation_id)
 
@@ -135,8 +135,10 @@ async def _run_agent(user_id: int, conversation_id: int, user_message: str) -> s
 
     messages = []
     if is_first:
+        is_nutrition = "Ассистент по питанию" in conv_title
+        prompt = NUTRITION_SYSTEM_PROMPT if is_nutrition else SYSTEM_PROMPT
         messages.append(SystemMessage(
-            content=SYSTEM_PROMPT.format(user_id=str(user_id)), id="system"
+            content=prompt.format(user_id=str(user_id)), id="system"
         ))
     messages.append(HumanMessage(content=user_message))
 
@@ -184,7 +186,7 @@ async def chat_in_conversation(
     await add_message(conv_id, "user", body.message)
 
     try:
-        reply = await _run_agent(user.id, conv_id, body.message)
+        reply = await _run_agent(user.id, conv_id, body.message, conv.title)
     except Exception as e:
         logger.exception("Agent error")
         reply = _friendly_error(e)
