@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Send, X, ChevronDown } from "lucide-react";
+import { Bot, Send, X, PenSquare, ChevronDown, MessageSquare } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -30,15 +30,20 @@ export default function NutritionAssistant({ open, onClose }: Props) {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const utils = trpc.useUtils();
 
-  // Load conversations to find or reuse the nutrition assistant conversation
   const conversationsQuery = trpc.chat.getConversations.useQuery(undefined, {
     enabled: open,
   });
+
+  // All nutrition conversations (by title prefix)
+  const nutritionConvs = (conversationsQuery.data ?? []).filter(c =>
+    c.title.includes("питанию") || c.title.includes("Nutrition") || c.title.startsWith("🥗")
+  );
 
   const messagesQuery = trpc.chat.getMessages.useQuery(
     { conversationId: conversationId! },
@@ -48,6 +53,8 @@ export default function NutritionAssistant({ open, onClose }: Props) {
   const createConv = trpc.chat.createConversation.useMutation({
     onSuccess: data => {
       setConversationId(data.conversationId);
+      setShowHistory(false);
+      utils.chat.getConversations.invalidate();
     },
     onError: () => toast.error("Не удалось создать чат"),
   });
@@ -65,22 +72,37 @@ export default function NutritionAssistant({ open, onClose }: Props) {
     },
   });
 
-  // On open: find or create the nutrition conversation
+  // On open: find the most recent nutrition conversation or create one
   useEffect(() => {
     if (!open) return;
+    if (!conversationsQuery.data) return;
+    if (conversationId !== null) return; // already have one
 
-    if (conversationsQuery.data) {
-      const existing = conversationsQuery.data.find(c =>
-        c.title.includes("питанию") || c.title.includes("Nutrition")
-      );
-      if (existing) {
-        setConversationId(existing.id);
-      } else {
-        createConv.mutate({ title: CONV_TITLE });
-      }
+    const existing = conversationsQuery.data.find(c =>
+      c.title.includes("питанию") || c.title.includes("Nutrition") || c.title.startsWith("🥗")
+    );
+    if (existing) {
+      setConversationId(existing.id);
+    } else {
+      createConv.mutate({ title: CONV_TITLE });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, conversationsQuery.data]);
+
+  function handleNewChat() {
+    setConversationId(null);
+    setOptimisticMessages([]);
+    setInput("");
+    setShowHistory(false);
+    createConv.mutate({ title: CONV_TITLE });
+  }
+
+  function handleSelectConv(id: number) {
+    setConversationId(id);
+    setOptimisticMessages([]);
+    setInput("");
+    setShowHistory(false);
+  }
 
   // Focus input when panel opens
   useEffect(() => {
@@ -153,22 +175,67 @@ export default function NutritionAssistant({ open, onClose }: Props) {
         ].join(" ")}
       >
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-white/[0.06] bg-[#0f0a1e]/80 backdrop-blur-md">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500/30 to-violet-600/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
-            <Bot size={16} className="text-purple-300" />
+        <div className="border-b border-white/[0.06] bg-[#0f0a1e]/80 backdrop-blur-md">
+          <div className="flex items-center gap-3 px-4 py-3">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500/30 to-violet-600/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+              <Bot size={16} className="text-purple-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white truncate">{ASSISTANT_TITLE}</p>
+              <p className="text-[11px] text-white/30">RAG · на основе науки о питании</p>
+            </div>
+            {/* New chat */}
+            <button
+              onClick={handleNewChat}
+              disabled={createConv.isPending}
+              title="Новый чат"
+              className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/40 hover:text-purple-300 hover:bg-purple-500/10 hover:border-purple-500/30 transition-all disabled:opacity-40"
+            >
+              <PenSquare size={13} />
+            </button>
+            {/* History toggle */}
+            {nutritionConvs.length > 1 && (
+              <button
+                onClick={() => setShowHistory(v => !v)}
+                title="История чатов"
+                className={[
+                  "w-7 h-7 rounded-lg border flex items-center justify-center transition-all",
+                  showHistory
+                    ? "bg-purple-500/20 border-purple-500/40 text-purple-300"
+                    : "bg-white/[0.04] border-white/[0.07] text-white/40 hover:text-white hover:bg-white/[0.09]",
+                ].join(" ")}
+              >
+                <ChevronDown size={13} className={`transition-transform duration-200 ${showHistory ? "rotate-180" : ""}`} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.09] transition-all"
+            >
+              <X size={14} />
+            </button>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white truncate">
-              {ASSISTANT_TITLE}
-            </p>
-            <p className="text-[11px] text-white/30">RAG · на основе науки о питании</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.09] transition-all"
-          >
-            <X size={14} />
-          </button>
+
+          {/* Conversation history list */}
+          {showHistory && (
+            <div className="px-3 pb-3 space-y-1">
+              {nutritionConvs.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => handleSelectConv(c.id)}
+                  className={[
+                    "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all",
+                    c.id === conversationId
+                      ? "bg-purple-500/15 border border-purple-500/30 text-white"
+                      : "bg-white/[0.03] border border-white/[0.06] text-white/60 hover:text-white hover:bg-white/[0.07]",
+                  ].join(" ")}
+                >
+                  <MessageSquare size={12} className="flex-shrink-0 text-purple-400/70" />
+                  <span className="text-xs truncate">{c.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Messages */}
