@@ -39,7 +39,7 @@ export default function Nutrition() {
 
   useEffect(() => {
     if (profileQuery.data && !profileQuery.data.onboarding_completed)
-      navigate("/chat");
+      navigate("/onboarding");
   }, [profileQuery.data, navigate]);
 
   const utils = trpc.useUtils();

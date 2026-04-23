@@ -176,7 +176,7 @@ export default function Dashboard() {
               </p>
             </div>
             <button
-              onClick={() => navigate("/chat")}
+              onClick={() => navigate("/onboarding")}
               className="flex-shrink-0 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition-colors"
             >
               Начать →
@@ -194,7 +194,7 @@ export default function Dashboard() {
               <button
                 key={card.title}
                 onClick={() =>
-                  locked ? navigate("/chat") : navigate(card.href)
+                  locked ? navigate("/onboarding") : navigate(card.href)
                 }
                 className={[
                   "group relative text-left p-6 rounded-2xl border bg-gradient-to-br backdrop-blur-sm transition-all duration-300 animate-slide-in-up",

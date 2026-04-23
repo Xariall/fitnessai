@@ -132,7 +132,6 @@ async def _run_agent(
     conversation_id: int,
     user_message: str,
     conv_title: str = "",
-    onboarding_completed: bool = True,
 ) -> str:
     graph = await get_graph()
     thread_id = str(conversation_id)
@@ -148,9 +147,7 @@ async def _run_agent(
     if needs_system:
         is_nutrition = "Ассистент по питанию" in conv_title
         prompt = NUTRITION_SYSTEM_PROMPT if is_nutrition else SYSTEM_PROMPT
-        content = prompt.replace("{user_id}", str(user_id)).replace(
-            "{onboarding_completed}", str(onboarding_completed)
-        )
+        content = prompt.replace("{user_id}", str(user_id))
         messages.append(SystemMessage(content=content, id="system"))
     messages.append(HumanMessage(content=user_message))
 
@@ -205,7 +202,7 @@ async def chat_in_conversation(
     await add_message(conv_id, "user", body.message)
 
     try:
-        reply = await _run_agent(user.id, conv_id, body.message, conv.title, user.onboarding_completed)
+        reply = await _run_agent(user.id, conv_id, body.message, conv.title)
     except Exception as e:
         logger.exception("Agent error")
         reply = _friendly_error(e)

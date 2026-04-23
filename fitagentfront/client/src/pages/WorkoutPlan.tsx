@@ -290,7 +290,7 @@ export default function WorkoutPlan() {
 
   useEffect(() => {
     if (profileQuery.data && !profileQuery.data.onboarding_completed)
-      navigate("/chat");
+      navigate("/onboarding");
   }, [profileQuery.data, navigate]);
 
   const programQuery = trpc.workout.getActive.useQuery(undefined, {

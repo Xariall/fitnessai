@@ -214,7 +214,7 @@ export default function Progress() {
 
   useEffect(() => {
     if (profileQuery.data && !profileQuery.data.onboarding_completed)
-      navigate("/chat");
+      navigate("/onboarding");
   }, [profileQuery.data, navigate]);
 
   const summaryQuery = trpc.progress.getSummary.useQuery(undefined, {

@@ -99,17 +99,9 @@ export default function Chat() {
   });
 
   const createConv = trpc.chat.createConversation.useMutation({
-    onSuccess: async data => {
+    onSuccess: data => {
       setSelectedConversation(data.conversationId);
       conversations.refetch();
-      if (!onboarded) {
-        setIsLoading(true);
-        await sendMsg.mutateAsync({
-          conversationId: data.conversationId,
-          message: "__start_onboarding__",
-        });
-        setIsLoading(false);
-      }
     },
     onError: () => {
       toast.error("Failed to create conversation");

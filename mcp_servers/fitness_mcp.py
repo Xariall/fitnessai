@@ -106,38 +106,6 @@ async def get_progress(user_id: str) -> str:
     return json.dumps(progress, ensure_ascii=False)
 
 
-@mcp.tool()
-async def complete_onboarding(
-    user_id: str,
-    age: int | None = None,
-    height: float | None = None,
-    weight: float | None = None,
-    gender: str | None = None,
-    activity: str | None = None,
-    goal: str | None = None,
-    injuries: str | None = None,
-) -> str:
-    """Сохранить профиль пользователя и завершить онбординг.
-
-    Вызывай этот инструмент ТОЛЬКО когда собрал все обязательные данные:
-    возраст, рост, вес, пол, уровень активности (sedentary/moderate/active/athlete)
-    и цель (lose/gain/maintain/recomposition).
-
-    Без вызова этого инструмента пользователь не сможет открыть другие разделы приложения.
-    """
-    await db.upsert_user_profile(
-        int(user_id),
-        age=age,
-        height=height,
-        weight=weight,
-        gender=gender,
-        activity=activity,
-        goal=goal,
-        injuries=injuries,
-        onboarding_completed=True,
-    )
-    return json.dumps({"success": True, "message": "Профиль сохранён, онбординг завершён. Все разделы приложения теперь доступны."}, ensure_ascii=False)
-
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
