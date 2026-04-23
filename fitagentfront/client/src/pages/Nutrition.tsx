@@ -9,7 +9,9 @@ import DayTabs from "@/components/nutrition/DayTabs";
 import NutritionSummary from "@/components/nutrition/NutritionSummary";
 import MealCard from "@/components/nutrition/MealCard";
 import RegeneratePlanModal from "@/components/nutrition/RegeneratePlanModal";
-import NutritionAssistant, { NutritionAssistantFAB } from "@/components/nutrition/NutritionAssistant";
+import NutritionAssistant, {
+  NutritionAssistantFAB,
+} from "@/components/nutrition/NutritionAssistant";
 
 function todayISO(): string {
   const d = new Date();
@@ -26,14 +28,18 @@ export default function Nutrition() {
   const [showModal, setShowModal] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
 
-  const profileQuery = trpc.profile.get.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+  const profileQuery = trpc.profile.get.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+  });
 
   useEffect(() => {
     if (!loading && !isAuthenticated) navigate("/");
   }, [loading, isAuthenticated, navigate]);
 
   useEffect(() => {
-    if (profileQuery.data && !profileQuery.data.onboarding_completed) navigate("/chat");
+    if (profileQuery.data && !profileQuery.data.onboarding_completed)
+      navigate("/chat");
   }, [profileQuery.data, navigate]);
 
   const utils = trpc.useUtils();

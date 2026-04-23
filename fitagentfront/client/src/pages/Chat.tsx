@@ -50,7 +50,10 @@ export default function Chat() {
   const { user, isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
 
-  const profileQuery = trpc.profile.get.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+  const profileQuery = trpc.profile.get.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+  });
   const onboarded = profileQuery.data?.onboarding_completed ?? true;
   const [selectedConversation, setSelectedConversation] = useState<
     number | null
@@ -81,16 +84,6 @@ export default function Chat() {
   );
 
   // Mutations
-  const createConv = trpc.chat.createConversation.useMutation({
-    onSuccess: data => {
-      setSelectedConversation(data.conversationId);
-      conversations.refetch();
-    },
-    onError: () => {
-      toast.error("Failed to create conversation");
-    },
-  });
-
   const sendMsg = trpc.chat.sendMessage.useMutation({
     onSuccess: () => {
       setMessageInput("");
@@ -102,6 +95,24 @@ export default function Chat() {
     onError: error => {
       toast.error(error.message || "Failed to send message");
       setIsLoading(false);
+    },
+  });
+
+  const createConv = trpc.chat.createConversation.useMutation({
+    onSuccess: async data => {
+      setSelectedConversation(data.conversationId);
+      conversations.refetch();
+      if (!onboarded) {
+        setIsLoading(true);
+        await sendMsg.mutateAsync({
+          conversationId: data.conversationId,
+          message: "__start_onboarding__",
+        });
+        setIsLoading(false);
+      }
+    },
+    onError: () => {
+      toast.error("Failed to create conversation");
     },
   });
 
@@ -394,8 +405,9 @@ export default function Chat() {
                     Привет! Давай познакомимся 👋
                   </h2>
                   <p className="text-white/50 mb-6 leading-relaxed">
-                    Начни новый чат — тренер задаст несколько вопросов о твоих целях и параметрах.
-                    После этого откроются все разделы приложения.
+                    Начни новый чат — тренер задаст несколько вопросов о твоих
+                    целях и параметрах. После этого откроются все разделы
+                    приложения.
                   </p>
                 </>
               ) : (
@@ -404,7 +416,8 @@ export default function Chat() {
                     Чат с тренером
                   </h2>
                   <p className="text-white/50 mb-6">
-                    Начни новый диалог и получи персональные советы по тренировкам и питанию
+                    Начни новый диалог и получи персональные советы по
+                    тренировкам и питанию
                   </p>
                 </>
               )}

@@ -203,14 +203,18 @@ export default function Progress() {
 
   const utils = trpc.useUtils();
 
-  const profileQuery = trpc.profile.get.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+  const profileQuery = trpc.profile.get.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+  });
 
   useEffect(() => {
     if (!loading && !isAuthenticated) navigate("/");
   }, [loading, isAuthenticated, navigate]);
 
   useEffect(() => {
-    if (profileQuery.data && !profileQuery.data.onboarding_completed) navigate("/chat");
+    if (profileQuery.data && !profileQuery.data.onboarding_completed)
+      navigate("/chat");
   }, [profileQuery.data, navigate]);
 
   const summaryQuery = trpc.progress.getSummary.useQuery(undefined, {

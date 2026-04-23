@@ -279,14 +279,18 @@ export default function WorkoutPlan() {
 
   const utils = trpc.useUtils();
 
-  const profileQuery = trpc.profile.get.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+  const profileQuery = trpc.profile.get.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+  });
 
   useEffect(() => {
     if (!loading && !isAuthenticated) navigate("/");
   }, [loading, isAuthenticated, navigate]);
 
   useEffect(() => {
-    if (profileQuery.data && !profileQuery.data.onboarding_completed) navigate("/chat");
+    if (profileQuery.data && !profileQuery.data.onboarding_completed)
+      navigate("/chat");
   }, [profileQuery.data, navigate]);
 
   const programQuery = trpc.workout.getActive.useQuery(undefined, {
