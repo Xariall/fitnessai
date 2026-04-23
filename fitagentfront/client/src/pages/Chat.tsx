@@ -24,6 +24,24 @@ import {
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
+const NEW_USER_HINTS = [
+  { icon: "🥗", text: "Расскажи как ты сейчас питаешься?" },
+  { icon: "🏋️", text: "Как ты тренировался раньше?" },
+  { icon: "💰", text: "Сколько готов тратить на питание в месяц?" },
+  { icon: "🏟️", text: "Есть ли у тебя доступ к спортзалу?" },
+  { icon: "📅", text: "Сколько дней в неделю можешь тренироваться?" },
+  { icon: "🚫", text: "Есть продукты которые ты не ешь или аллергии?" },
+];
+
+const REGULAR_HINTS = [
+  { icon: "💪", text: "Составь план тренировки на сегодня" },
+  { icon: "🥩", text: "Что лучше съесть после тренировки?" },
+  { icon: "📊", text: "Сколько белка мне нужно в день?" },
+  { icon: "🔥", text: "Как ускорить метаболизм?" },
+  { icon: "🧘", text: "Как правильно восстанавливаться между тренировками?" },
+  { icon: "⚖️", text: "Запиши мой вес" },
+];
+
 const DOCKER_STEPS = [
   {
     label: "1. Copy example env and fill in your keys",
@@ -56,6 +74,9 @@ export default function Chat() {
     retry: false,
   });
   const onboarded = profileQuery.data?.onboarding_completed ?? true;
+  const nutritionUnlocked = profileQuery.data?.nutrition_unlocked ?? false;
+  const workoutUnlocked = profileQuery.data?.workout_unlocked ?? false;
+  const isNewUser = onboarded && (!nutritionUnlocked || !workoutUnlocked);
   const [selectedConversation, setSelectedConversation] = useState<
     number | null
   >(null);
@@ -63,6 +84,7 @@ export default function Chat() {
   const [isLoading, setIsLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pendingHintRef = useRef<string | null>(null);
 
   const handleExit = () => navigate("/");
 
@@ -100,9 +122,19 @@ export default function Chat() {
   });
 
   const createConv = trpc.chat.createConversation.useMutation({
-    onSuccess: data => {
+    onSuccess: async data => {
       setSelectedConversation(data.conversationId);
       conversations.refetch();
+      if (pendingHintRef.current) {
+        const hint = pendingHintRef.current;
+        pendingHintRef.current = null;
+        setIsLoading(true);
+        await sendMsg.mutateAsync({
+          conversationId: data.conversationId,
+          message: hint,
+        });
+        setIsLoading(false);
+      }
     },
     onError: () => {
       toast.error("Failed to create conversation");
@@ -148,6 +180,11 @@ export default function Chat() {
   };
 
   const handleNewConversation = async () => {
+    await createConv.mutateAsync({});
+  };
+
+  const handleHintClick = async (text: string) => {
+    pendingHintRef.current = text;
     await createConv.mutateAsync({});
   };
 
@@ -391,39 +428,66 @@ export default function Chat() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
-            <MessageSquare size={64} className="text-purple-400/30" />
-            <div className="text-center max-w-sm">
+          <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6 py-10 max-w-2xl mx-auto w-full">
+            {/* Header */}
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/20 flex items-center justify-center mx-auto mb-4">
+                <MessageSquare size={26} className="text-purple-400" />
+              </div>
               {!onboarded ? (
                 <>
-                  <h2 className="text-2xl font-bold text-white mb-2">
+                  <h2 className="text-2xl font-bold text-white mb-1">
                     Привет! Давай познакомимся 👋
                   </h2>
-                  <p className="text-white/50 mb-6 leading-relaxed">
-                    Начни новый чат — тренер задаст несколько вопросов о твоих
-                    целях и параметрах. После этого откроются все разделы
-                    приложения.
+                  <p className="text-white/40 text-sm">
+                    Начни чат или выбери тему ниже
+                  </p>
+                </>
+              ) : isNewUser ? (
+                <>
+                  <h2 className="text-2xl font-bold text-white mb-1">
+                    Расскажи о себе
+                  </h2>
+                  <p className="text-white/40 text-sm">
+                    Чем больше я знаю — тем точнее советы
                   </p>
                 </>
               ) : (
                 <>
-                  <h2 className="text-2xl font-bold text-white mb-2">
-                    Чат с тренером
+                  <h2 className="text-2xl font-bold text-white mb-1">
+                    Чем могу помочь?
                   </h2>
-                  <p className="text-white/50 mb-6">
-                    Начни новый диалог и получи персональные советы по
-                    тренировкам и питанию
+                  <p className="text-white/40 text-sm">
+                    Выбери тему или напиши свой вопрос
                   </p>
                 </>
               )}
-              <button
-                onClick={handleNewConversation}
-                disabled={createConv.isPending}
-                className="btn-primary"
-              >
-                Начать чат
-              </button>
             </div>
+
+            {/* Hint chips */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+              {(isNewUser ? NEW_USER_HINTS : REGULAR_HINTS).map(hint => (
+                <button
+                  key={hint.text}
+                  onClick={() => handleHintClick(hint.text)}
+                  disabled={createConv.isPending}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-purple-500/30 text-left text-sm text-white/70 hover:text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <span className="text-lg flex-shrink-0">{hint.icon}</span>
+                  <span className="leading-snug">{hint.text}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* New chat button */}
+            <button
+              onClick={handleNewConversation}
+              disabled={createConv.isPending}
+              className="btn-primary flex items-center gap-2 text-sm"
+            >
+              <Plus size={16} />
+              Начать новый чат
+            </button>
           </div>
         )}
       </div>
