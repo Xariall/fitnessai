@@ -102,7 +102,9 @@ export default function Chat() {
     onSuccess: (_, { conversationId: deletedId }) => {
       conversations.refetch();
       if (selectedConversation === deletedId) {
-        const remaining = (conversations.data ?? []).filter(c => c.id !== deletedId);
+        const remaining = (conversations.data ?? []).filter(
+          c => c.id !== deletedId
+        );
         setSelectedConversation(remaining.length > 0 ? remaining[0].id : null);
       }
     },

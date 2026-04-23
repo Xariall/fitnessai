@@ -281,8 +281,13 @@ export default function NutritionAssistant({ open, onClose }: Props) {
                     onClick={() => handleSelectConv(c.id)}
                     className="flex items-center gap-2 flex-1 min-w-0 text-left"
                   >
-                    <MessageSquare size={12} className="flex-shrink-0 text-purple-400/70" />
-                    <span className={`text-xs truncate ${c.id === conversationId ? "text-white" : "text-white/60 group-hover:text-white"}`}>
+                    <MessageSquare
+                      size={12}
+                      className="flex-shrink-0 text-purple-400/70"
+                    />
+                    <span
+                      className={`text-xs truncate ${c.id === conversationId ? "text-white" : "text-white/60 group-hover:text-white"}`}
+                    >
                       {c.title}
                     </span>
                   </button>
