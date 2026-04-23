@@ -8,7 +8,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   Send,
@@ -24,13 +24,15 @@ import {
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-const NEW_USER_HINTS = [
-  { icon: "🥗", text: "Расскажи как ты сейчас питаешься?" },
-  { icon: "🏋️", text: "Как ты тренировался раньше?" },
-  { icon: "💰", text: "Сколько готов тратить на питание в месяц?" },
-  { icon: "🏟️", text: "Есть ли у тебя доступ к спортзалу?" },
-  { icon: "📅", text: "Сколько дней в неделю можешь тренироваться?" },
-  { icon: "🚫", text: "Есть продукты которые ты не ешь или аллергии?" },
+// ── Scripted onboarding questions ────────────────────────────────────────────
+// Asked one-by-one without LLM. Answers are sent in ONE batch to LLM at the end.
+const ONBOARDING_QUESTIONS = [
+  "Расскажи как ты обычно питаешься? Что входит в твой типичный день еды?",
+  "Есть ли продукты которые ты не ешь — аллергии, непереносимость, вегетарианство или просто не любишь?",
+  "Сколько раз в день ты обычно ешь? Примерно какой бюджет в месяц тратишь на питание?",
+  "Занимался ли ты раньше спортом или фитнесом? Расскажи о своём опыте.",
+  "Есть ли у тебя доступ к спортзалу или оборудование дома (гантели, турник и т.д.)?",
+  "Сколько дней в неделю и примерно сколько времени в день готов тренироваться?",
 ];
 
 const REGULAR_HINTS = [
@@ -51,19 +53,84 @@ const DOCKER_STEPS = [
     label: "2. Build and start all services",
     cmd: "docker compose up --build -d",
   },
-  {
-    label: "3. Verify services are running",
-    cmd: "docker compose ps",
-  },
+  { label: "3. Verify services are running", cmd: "docker compose ps" },
   {
     label: "4. Check API health",
     cmd: "curl http://localhost:8000/api/health",
   },
-  {
-    label: "5. View logs",
-    cmd: "docker compose logs -f api",
-  },
+  { label: "5. View logs", cmd: "docker compose logs -f api" },
 ];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function buildOnboardingSummary(
+  profile: {
+    name?: string | null;
+    age?: number | null;
+    height?: number | null;
+    weight?: number | null;
+    gender?: string | null;
+    goal?: string | null;
+    activity?: string | null;
+    injuries?: string | null;
+  },
+  answers: string[]
+): string {
+  const GOAL_RU: Record<string, string> = {
+    lose: "похудение",
+    gain: "набор массы",
+    maintain: "поддержание формы",
+    recomposition: "рекомпозиция",
+  };
+  const ACTIVITY_RU: Record<string, string> = {
+    sedentary: "сидячий",
+    moderate: "умеренный",
+    active: "активный",
+    athlete: "атлет",
+  };
+  const GENDER_RU: Record<string, string> = {
+    male: "мужской",
+    female: "женский",
+    other: "другой",
+  };
+
+  const profileLines = [
+    profile.name ? `Имя: ${profile.name}` : null,
+    profile.age ? `Возраст: ${profile.age} лет` : null,
+    profile.height ? `Рост: ${profile.height} см` : null,
+    profile.weight ? `Вес: ${profile.weight} кг` : null,
+    profile.gender
+      ? `Пол: ${GENDER_RU[profile.gender] ?? profile.gender}`
+      : null,
+    profile.goal ? `Цель: ${GOAL_RU[profile.goal] ?? profile.goal}` : null,
+    profile.activity
+      ? `Уровень активности: ${ACTIVITY_RU[profile.activity] ?? profile.activity}`
+      : null,
+    profile.injuries
+      ? `Заболевания/травмы: ${profile.injuries}`
+      : "Заболевания/травмы: нет",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const qa = ONBOARDING_QUESTIONS.map(
+    (q, i) => `Вопрос: ${q}\nОтвет пользователя: ${answers[i] ?? "—"}`
+  ).join("\n\n");
+
+  return `__ONBOARDING_SUMMARY__
+Данные из анкеты пользователя (не спрашивай повторно):
+${profileLines}
+
+Дополнительные ответы пользователя:
+${qa}
+
+Задача:
+1. Вызови unlock_nutrition — данные по питанию собраны
+2. Вызови unlock_workout — данные по тренировкам собраны
+3. После вызова инструментов дай тёплое персональное приветствие, кратко резюмируй что узнал о пользователе и скажи что все разделы теперь доступны`;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Chat() {
   const { user, isAuthenticated, loading } = useAuth();
@@ -77,15 +144,21 @@ export default function Chat() {
   const nutritionUnlocked = profileQuery.data?.nutrition_unlocked ?? false;
   const workoutUnlocked = profileQuery.data?.workout_unlocked ?? false;
   const isNewUser = onboarded && (!nutritionUnlocked || !workoutUnlocked);
+
   const [selectedConversation, setSelectedConversation] = useState<
     number | null
   >(null);
   const [messageInput, setMessageInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // Scripted onboarding state
+  const [scriptStep, setScriptStep] = useState<number | null>(null);
+  const [scriptAnswers, setScriptAnswers] = useState<string[]>([]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const pendingHintRef = useRef<string | null>(null);
   const autoStartedRef = useRef(false);
+  const startScriptOnCreateRef = useRef(false);
 
   const handleExit = () => navigate("/");
 
@@ -113,7 +186,6 @@ export default function Chat() {
       setMessageInput("");
       messages.refetch();
       conversations.refetch();
-      // Refresh profile so Dashboard unlocks as soon as AI calls complete_onboarding
       utils.profile.get.invalidate();
     },
     onError: error => {
@@ -123,18 +195,13 @@ export default function Chat() {
   });
 
   const createConv = trpc.chat.createConversation.useMutation({
-    onSuccess: async data => {
+    onSuccess: data => {
       setSelectedConversation(data.conversationId);
       conversations.refetch();
-      if (pendingHintRef.current) {
-        const hint = pendingHintRef.current;
-        pendingHintRef.current = null;
-        setIsLoading(true);
-        await sendMsg.mutateAsync({
-          conversationId: data.conversationId,
-          message: hint,
-        });
-        setIsLoading(false);
+      if (startScriptOnCreateRef.current) {
+        startScriptOnCreateRef.current = false;
+        setScriptStep(0);
+        setScriptAnswers([]);
       }
     },
     onError: () => {
@@ -155,20 +222,18 @@ export default function Chat() {
     onError: () => toast.error("Не удалось удалить чат"),
   });
 
-  // Auto-scroll to latest message
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.data]);
+  }, [messages.data, scriptStep, scriptAnswers]);
 
-  // Redirect if not authenticated (wait for auth check to complete first)
+  // Redirect if not authenticated
   useEffect(() => {
     if (loading) return;
-    if (!isAuthenticated) {
-      navigate("/");
-    }
+    if (!isAuthenticated) navigate("/");
   }, [isAuthenticated, loading, navigate]);
 
-  // Auto-start profile collection for new users
+  // Auto-start scripted flow for new users
   useEffect(() => {
     if (!isNewUser) return;
     if (conversations.isLoading || profileQuery.isLoading) return;
@@ -176,11 +241,13 @@ export default function Chat() {
     autoStartedRef.current = true;
 
     if (conversations.data && conversations.data.length > 0) {
+      // Existing conversation — select it; script starts via the next effect
       setSelectedConversation(conversations.data[0].id);
       return;
     }
 
-    pendingHintRef.current = "__collect_profile__";
+    // No conversations — create one and start script
+    startScriptOnCreateRef.current = true;
     void createConv.mutateAsync({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -190,10 +257,84 @@ export default function Chat() {
     profileQuery.isLoading,
   ]);
 
+  // Start script when a conversation is selected that has no real messages
+  useEffect(() => {
+    if (!isNewUser) return;
+    if (!selectedConversation) return;
+    if (messages.isLoading) return;
+    if (scriptStep !== null) return; // already in script mode
+
+    const realMessages = (messages.data ?? []).filter(
+      m => !m.content.startsWith("__ONBOARDING_SUMMARY__")
+    );
+    if (realMessages.length === 0) {
+      setScriptStep(0);
+      setScriptAnswers([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isNewUser,
+    selectedConversation,
+    messages.isLoading,
+    messages.data?.length,
+  ]);
+
+  // Build the list of scripted messages to show
+  const scriptedMessages = useMemo(() => {
+    if (scriptStep === null) return [];
+    const result: Array<{ id: string; role: string; content: string }> = [];
+    for (
+      let i = 0;
+      i <= Math.min(scriptStep, ONBOARDING_QUESTIONS.length - 1);
+      i++
+    ) {
+      result.push({
+        id: `q-${i}`,
+        role: "assistant",
+        content: ONBOARDING_QUESTIONS[i],
+      });
+      if (scriptAnswers[i] !== undefined) {
+        result.push({ id: `a-${i}`, role: "user", content: scriptAnswers[i] });
+      }
+    }
+    return result;
+  }, [scriptStep, scriptAnswers]);
+
+  // Send all collected answers to LLM in one call
+  const sendOnboardingSummary = async (answers: string[]) => {
+    if (!selectedConversation || !profileQuery.data) return;
+    const summary = buildOnboardingSummary(profileQuery.data, answers);
+    setIsLoading(true);
+    await sendMsg.mutateAsync({
+      conversationId: selectedConversation,
+      message: summary,
+    });
+    setIsLoading(false);
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageInput.trim() || !selectedConversation) return;
+    if (!messageInput.trim()) return;
 
+    // ── Scripted mode: collect answers one by one ──────────────────────────
+    if (scriptStep !== null) {
+      const answer = messageInput.trim();
+      const newAnswers = [...scriptAnswers, answer];
+      setScriptAnswers(newAnswers);
+      setMessageInput("");
+
+      if (scriptStep < ONBOARDING_QUESTIONS.length - 1) {
+        setScriptStep(scriptStep + 1);
+      } else {
+        // All answered — send summary to LLM
+        setScriptStep(null);
+        await sendOnboardingSummary(newAnswers);
+      }
+      return;
+    }
+
+    // ── Normal mode ────────────────────────────────────────────────────────
+    if (!selectedConversation) return;
     setIsLoading(true);
     await sendMsg.mutateAsync({
       conversationId: selectedConversation,
@@ -203,12 +344,10 @@ export default function Chat() {
   };
 
   const handleNewConversation = async () => {
-    // If the current conversation is already empty — just deselect to show hints
     if (selectedConversation && messages.data?.length === 0) {
       setSelectedConversation(null);
       return;
     }
-    // If there's an existing empty conversation (default title, never used) — switch to it
     const emptyConv = (conversations.data ?? []).find(
       c => c.id !== selectedConversation && c.title === "Новый чат"
     );
@@ -220,8 +359,6 @@ export default function Chat() {
   };
 
   const handleHintClick = async (text: string) => {
-    pendingHintRef.current = text;
-    // Reuse an existing empty conversation if available
     const emptyConv = (conversations.data ?? []).find(
       c => c.title === "Новый чат"
     );
@@ -232,32 +369,40 @@ export default function Chat() {
         conversationId: emptyConv.id,
         message: text,
       });
-      pendingHintRef.current = null;
       setIsLoading(false);
       return;
     }
-    await createConv.mutateAsync({});
+    // Will send on createConv.onSuccess via pendingHint — reuse inline
+    setIsLoading(true);
+    const conv = await createConv.mutateAsync({});
+    await sendMsg.mutateAsync({
+      conversationId: (conv as any).conversationId,
+      message: text,
+    });
+    setIsLoading(false);
   };
 
-  if (loading || !isAuthenticated) {
-    return null;
-  }
+  if (loading || !isAuthenticated) return null;
+
+  // Visible real messages (filter hidden summaries)
+  const visibleMessages = (messages.data ?? []).filter(
+    m => !m.content.startsWith("__ONBOARDING_SUMMARY__")
+  );
 
   return (
     <div className="h-screen bg-gradient-dark relative overflow-hidden flex">
-      {/* Animated background orbs */}
+      {/* Background orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-purple-600 to-purple-800 rounded-full blur-3xl opacity-10 animate-float"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-br from-cyan-500 to-purple-600 rounded-full blur-3xl opacity-10 animate-float-reverse"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-purple-600 to-purple-800 rounded-full blur-3xl opacity-10 animate-float" />
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-br from-cyan-500 to-purple-600 rounded-full blur-3xl opacity-10 animate-float-reverse" />
       </div>
 
       {/* Sidebar */}
       <div className="w-64 glass border-r border-white/10 flex flex-col relative z-10">
-        {/* Header */}
         <div className="p-4 border-b border-white/10">
           <button
             onClick={handleNewConversation}
-            disabled={createConv.isPending}
+            disabled={createConv.isPending || scriptStep !== null}
             className="w-full btn-primary flex items-center justify-center gap-2 text-sm"
           >
             <Plus size={18} />
@@ -265,7 +410,6 @@ export default function Chat() {
           </button>
         </div>
 
-        {/* Conversations List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-1">
           {conversations.data?.map(conv => (
             <div
@@ -305,16 +449,11 @@ export default function Chat() {
           ))}
         </div>
 
-        {/* Sidebar Footer: user info + actions */}
         <div className="p-4 border-t border-white/10 space-y-3">
-          {/* User name */}
           <p className="text-xs text-muted-sm truncate">
             {user?.name || user?.email}
           </p>
-
-          {/* Action buttons */}
           <div className="flex items-center gap-2">
-            {/* Exit → home */}
             <button
               onClick={handleExit}
               title="Back to home"
@@ -324,7 +463,6 @@ export default function Chat() {
               Exit
             </button>
 
-            {/* Docker setup dialog */}
             <Dialog>
               <DialogTrigger asChild>
                 <button
@@ -334,19 +472,16 @@ export default function Chat() {
                   <HelpCircle size={15} />
                 </button>
               </DialogTrigger>
-
               <DialogContent className="bg-gray-900/95 border-white/10 text-white max-w-lg">
                 <DialogHeader>
                   <DialogTitle className="text-white flex items-center gap-2">
                     🐳 Docker Setup
                   </DialogTitle>
                 </DialogHeader>
-
                 <p className="text-sm text-white/60 mb-4">
                   Run FitAgent locally with Docker Compose — three commands get
-                  you a fully working stack (PostgreSQL · FastAPI · React).
+                  you a fully working stack.
                 </p>
-
                 <div className="space-y-3">
                   {DOCKER_STEPS.map((step, i) => (
                     <div key={i} className="space-y-1">
@@ -358,7 +493,6 @@ export default function Chat() {
                         <button
                           onClick={() => handleCopy(step.cmd, i)}
                           className="text-white/40 hover:text-white/80 transition-colors flex-shrink-0"
-                          title="Copy command"
                         >
                           {copiedIndex === i ? (
                             <Check size={14} className="text-green-400" />
@@ -370,17 +504,6 @@ export default function Chat() {
                     </div>
                   ))}
                 </div>
-
-                <div className="mt-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-                  <p className="text-xs text-purple-300">
-                    <strong>Requires:</strong> Docker Desktop, a Gemini API key,
-                    and Google OAuth credentials. Copy{" "}
-                    <code className="bg-black/30 px-1 rounded">
-                      .env.example → .env
-                    </code>{" "}
-                    and fill in the values before running.
-                  </p>
-                </div>
               </DialogContent>
             </Dialog>
           </div>
@@ -391,7 +514,7 @@ export default function Chat() {
       <div className="flex-1 flex flex-col relative z-10">
         {selectedConversation ? (
           <>
-            {/* Chat Header */}
+            {/* Header */}
             <div className="glass border-b border-white/10 p-4 flex items-center gap-4">
               <button
                 onClick={() => setSelectedConversation(null)}
@@ -399,16 +522,57 @@ export default function Chat() {
               >
                 <ArrowLeft size={20} className="text-white" />
               </button>
-              <h2 className="text-lg font-bold text-white flex-1">Chat</h2>
+              <div className="flex-1">
+                <h2 className="text-lg font-bold text-white">Chat</h2>
+                {scriptStep !== null && (
+                  <p className="text-xs text-purple-400/70">
+                    Вопрос {scriptStep + 1} из {ONBOARDING_QUESTIONS.length}
+                  </p>
+                )}
+              </div>
+              {scriptStep !== null && (
+                <div className="flex gap-1">
+                  {ONBOARDING_QUESTIONS.map((_, i) => (
+                    <div
+                      key={i}
+                      className={`h-1 w-5 rounded-full transition-all duration-300 ${
+                        i < scriptAnswers.length
+                          ? "bg-purple-500"
+                          : i === scriptStep
+                            ? "bg-purple-400/60"
+                            : "bg-white/10"
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Messages Area */}
+            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {messages.isLoading ? (
+              {/* Scripted messages (local, no LLM) */}
+              {scriptStep !== null ? (
+                scriptedMessages.map(msg => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
+                        msg.role === "user"
+                          ? "bg-purple-500/30 border border-purple-500/50 text-white"
+                          : "glass text-white"
+                      }`}
+                    >
+                      <p className="text-sm leading-relaxed">{msg.content}</p>
+                    </div>
+                  </div>
+                ))
+              ) : messages.isLoading ? (
                 <div className="flex items-center justify-center h-full">
-                  <div className="text-muted-sm">Loading messages...</div>
+                  <div className="text-muted-sm">Загрузка...</div>
                 </div>
-              ) : messages.data && messages.data.length === 0 ? (
+              ) : visibleMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4">
                   <MessageSquare size={48} className="text-purple-400/30" />
                   <p className="text-muted-sm">
@@ -416,40 +580,39 @@ export default function Chat() {
                   </p>
                 </div>
               ) : (
-                messages.data
-                  ?.filter(msg => msg.content !== "__collect_profile__")
-                  .map(msg => (
+                visibleMessages.map(msg => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
                     <div
-                      key={msg.id}
-                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                      className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
+                        msg.role === "user"
+                          ? "bg-purple-500/30 border border-purple-500/50 text-white"
+                          : "glass text-white"
+                      }`}
                     >
-                      <div
-                        className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
-                          msg.role === "user"
-                            ? "bg-purple-500/30 border border-purple-500/50 text-white"
-                            : "glass text-white"
-                        }`}
-                      >
-                        <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
-                        </div>
-                        <p className="text-xs text-muted-sm mt-2">
-                          {new Date(msg.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
+                      <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
                       </div>
+                      <p className="text-xs text-muted-sm mt-2">
+                        {new Date(msg.created_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
                     </div>
-                  ))
+                  </div>
+                ))
               )}
+
               {isLoading && (
                 <div className="flex justify-start">
                   <div className="glass px-4 py-3 rounded-lg">
                     <div className="flex gap-2">
-                      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-100"></div>
-                      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-200"></div>
+                      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" />
+                      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-100" />
+                      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-200" />
                     </div>
                   </div>
                 </div>
@@ -457,12 +620,16 @@ export default function Chat() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area */}
+            {/* Input */}
             <div className="glass border-t border-white/10 p-4">
               <form onSubmit={handleSendMessage} className="flex gap-3">
                 <Input
                   type="text"
-                  placeholder="Ask your AI trainer..."
+                  placeholder={
+                    scriptStep !== null
+                      ? "Напиши ответ..."
+                      : "Ask your AI trainer..."
+                  }
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
                   disabled={isLoading || sendMsg.isPending}
@@ -481,8 +648,8 @@ export default function Chat() {
             </div>
           </>
         ) : (
+          /* Empty state with hints */
           <div className="flex-1 flex flex-col items-center justify-center gap-8 px-6 py-10 max-w-2xl mx-auto w-full">
-            {/* Header */}
             <div className="text-center">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/20 flex items-center justify-center mx-auto mb-4">
                 <MessageSquare size={26} className="text-purple-400" />
@@ -493,16 +660,7 @@ export default function Chat() {
                     Привет! Давай познакомимся 👋
                   </h2>
                   <p className="text-white/40 text-sm">
-                    Начни чат или выбери тему ниже
-                  </p>
-                </>
-              ) : isNewUser ? (
-                <>
-                  <h2 className="text-2xl font-bold text-white mb-1">
-                    Расскажи о себе
-                  </h2>
-                  <p className="text-white/40 text-sm">
-                    Чем больше я знаю — тем точнее советы
+                    Начни чат — тренер задаст несколько вопросов
                   </p>
                 </>
               ) : (
@@ -517,22 +675,22 @@ export default function Chat() {
               )}
             </div>
 
-            {/* Hint chips */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
-              {(isNewUser ? NEW_USER_HINTS : REGULAR_HINTS).map(hint => (
-                <button
-                  key={hint.text}
-                  onClick={() => handleHintClick(hint.text)}
-                  disabled={createConv.isPending}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-purple-500/30 text-left text-sm text-white/70 hover:text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <span className="text-lg flex-shrink-0">{hint.icon}</span>
-                  <span className="leading-snug">{hint.text}</span>
-                </button>
-              ))}
-            </div>
+            {!isNewUser && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+                {REGULAR_HINTS.map(hint => (
+                  <button
+                    key={hint.text}
+                    onClick={() => handleHintClick(hint.text)}
+                    disabled={createConv.isPending}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-purple-500/30 text-left text-sm text-white/70 hover:text-white transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <span className="text-lg flex-shrink-0">{hint.icon}</span>
+                    <span className="leading-snug">{hint.text}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
-            {/* New chat button */}
             <button
               onClick={handleNewConversation}
               disabled={createConv.isPending}
