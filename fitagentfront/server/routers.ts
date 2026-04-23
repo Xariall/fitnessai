@@ -155,6 +155,16 @@ export const appRouter = router({
         )) as { response: string };
         return { success: true, assistantMessage: data.response };
       }),
+
+    deleteConversation: protectedProcedure
+      .input(z.object({ conversationId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await apiRequest(`/api/conversations/${input.conversationId}`, {
+          method: "DELETE",
+          cookie: ctx.req.headers.cookie,
+        });
+        return { success: true };
+      }),
   }),
 
   // ── User profile ──────────────────────────────────────────────────────

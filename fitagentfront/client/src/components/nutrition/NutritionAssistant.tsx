@@ -6,6 +6,7 @@ import {
   PenSquare,
   ChevronDown,
   MessageSquare,
+  Trash2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -82,7 +83,27 @@ export default function NutritionAssistant({ open, onClose }: Props) {
     },
   });
 
-  // On open: find the most recent nutrition conversation or create one
+  const deleteConv = trpc.chat.deleteConversation.useMutation({
+    onSuccess: (_, { conversationId: deletedId }) => {
+      utils.chat.getConversations.invalidate();
+      if (conversationId === deletedId) {
+        // Switch to the next available nutrition chat, or create fresh
+        const remaining = nutritionConvs.filter(c => c.id !== deletedId);
+        if (remaining.length > 0) {
+          setConversationId(remaining[0].id);
+        } else {
+          setConversationId(null);
+          createConv.mutate({ title: CONV_TITLE });
+        }
+        setOptimisticMessages([]);
+        setInput("");
+      }
+    },
+    onError: () => toast.error("Не удалось удалить чат"),
+  });
+
+  // On open: find the most recent nutrition conversation or create one.
+  // If there's an empty draft (title still CONV_TITLE and no messages), reuse it.
   useEffect(() => {
     if (!open) return;
     if (!conversationsQuery.data) return;
@@ -103,6 +124,15 @@ export default function NutritionAssistant({ open, onClose }: Props) {
   }, [open, conversationsQuery.data]);
 
   function handleNewChat() {
+    // Reuse existing empty (untitled) nutrition chat instead of creating a new one
+    const emptyDraft = nutritionConvs.find(c => c.title === CONV_TITLE);
+    if (emptyDraft) {
+      setConversationId(emptyDraft.id);
+      setOptimisticMessages([]);
+      setInput("");
+      setShowHistory(false);
+      return;
+    }
     setConversationId(null);
     setOptimisticMessages([]);
     setInput("");
@@ -238,22 +268,32 @@ export default function NutritionAssistant({ open, onClose }: Props) {
           {showHistory && (
             <div className="px-3 pb-3 space-y-1">
               {nutritionConvs.map(c => (
-                <button
+                <div
                   key={c.id}
-                  onClick={() => handleSelectConv(c.id)}
                   className={[
-                    "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-all",
+                    "group flex items-center gap-2 px-3 py-2 rounded-xl transition-all",
                     c.id === conversationId
-                      ? "bg-purple-500/15 border border-purple-500/30 text-white"
-                      : "bg-white/[0.03] border border-white/[0.06] text-white/60 hover:text-white hover:bg-white/[0.07]",
+                      ? "bg-purple-500/15 border border-purple-500/30"
+                      : "bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.07]",
                   ].join(" ")}
                 >
-                  <MessageSquare
-                    size={12}
-                    className="flex-shrink-0 text-purple-400/70"
-                  />
-                  <span className="text-xs truncate">{c.title}</span>
-                </button>
+                  <button
+                    onClick={() => handleSelectConv(c.id)}
+                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                  >
+                    <MessageSquare size={12} className="flex-shrink-0 text-purple-400/70" />
+                    <span className={`text-xs truncate ${c.id === conversationId ? "text-white" : "text-white/60 group-hover:text-white"}`}>
+                      {c.title}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => deleteConv.mutate({ conversationId: c.id })}
+                    disabled={deleteConv.isPending}
+                    className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all disabled:opacity-30"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
               ))}
             </div>
           )}

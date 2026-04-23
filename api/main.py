@@ -30,6 +30,7 @@ from database.db import (
     add_message,
     add_to_waitlist,
     create_conversation,
+    delete_conversation,
     get_and_set_system_msg_flag,
     get_conversation,
     get_conversations,
@@ -172,6 +173,14 @@ async def list_messages(conv_id: int, user: User = Depends(get_current_user)) ->
     if not conv:
         raise HTTPException(404, "Conversation not found")
     return await get_messages(conv_id)
+
+
+@app.delete("/api/conversations/{conv_id}")
+async def delete_conv(conv_id: int, user: User = Depends(get_current_user)) -> dict:
+    deleted = await delete_conversation(conv_id, user.id)
+    if not deleted:
+        raise HTTPException(404, "Conversation not found")
+    return {"success": True}
 
 
 @app.post("/api/conversations/{conv_id}/chat")

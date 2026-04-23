@@ -751,6 +751,22 @@ async def get_and_set_system_msg_flag(conversation_id: int) -> bool:
         return True
 
 
+async def delete_conversation(conversation_id: int, user_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+        )
+        conv = result.scalar_one_or_none()
+        if not conv:
+            return False
+        await session.delete(conv)
+        await session.commit()
+        return True
+
+
 async def update_conversation_title(conversation_id: int, title: str) -> None:
     async with AsyncSessionLocal() as session:
         await session.execute(
