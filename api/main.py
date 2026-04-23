@@ -274,6 +274,8 @@ async def get_profile(user: User = Depends(get_current_user)) -> dict:
         "goal": user.goal,
         "injuries": user.injuries,
         "onboarding_completed": user.onboarding_completed,
+        "nutrition_unlocked": user.nutrition_unlocked,
+        "workout_unlocked": user.workout_unlocked,
     }
 
 

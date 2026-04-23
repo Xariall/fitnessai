@@ -18,6 +18,8 @@ class UserProfileUpdate(BaseModel):
     goal: str | None = None
     injuries: str | None = Field(default=None, max_length=2000)
     onboarding_completed: bool | None = None
+    nutrition_unlocked: bool | None = None
+    workout_unlocked: bool | None = None
 
     @field_validator("gender")
     @classmethod

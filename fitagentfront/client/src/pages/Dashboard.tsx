@@ -79,6 +79,8 @@ export default function Dashboard() {
   if (loading || !isAuthenticated) return null;
 
   const onboarded = profileQuery.data?.onboarding_completed ?? true;
+  const nutritionUnlocked = profileQuery.data?.nutrition_unlocked ?? false;
+  const workoutUnlocked = profileQuery.data?.workout_unlocked ?? false;
 
   return (
     <div className="min-h-screen bg-gradient-dark relative overflow-hidden flex flex-col">
@@ -189,13 +191,24 @@ export default function Dashboard() {
           {CARDS.map((card, i) => {
             const Icon = card.icon;
             const isChat = card.href === "/chat";
-            const locked = !onboarded && !isChat;
+            const isNutrition = card.href === "/nutrition";
+            const isWorkout = card.href === "/workout-plan";
+            let locked = false;
+            if (!onboarded) {
+              locked = !isChat;
+            } else if (isNutrition) {
+              locked = !nutritionUnlocked;
+            } else if (isWorkout) {
+              locked = !workoutUnlocked;
+            }
             return (
               <button
                 key={card.title}
-                onClick={() =>
-                  locked ? navigate("/onboarding") : navigate(card.href)
-                }
+                onClick={() => {
+                  if (!locked) navigate(card.href);
+                  else if (!onboarded) navigate("/onboarding");
+                  else navigate("/chat");
+                }}
                 className={[
                   "group relative text-left p-6 rounded-2xl border bg-gradient-to-br backdrop-blur-sm transition-all duration-300 animate-slide-in-up",
                   locked
@@ -221,7 +234,11 @@ export default function Dashboard() {
                       {card.title}
                     </h3>
                     <p className="text-sm text-white/30 leading-relaxed">
-                      {locked ? "Доступно после онбординга" : card.desc}
+                      {locked
+                        ? !onboarded
+                          ? "Доступно после онбординга"
+                          : "Обсуди с тренером в чате — раздел откроется автоматически"
+                        : card.desc}
                     </p>
                   </div>
                   {!locked && (

@@ -289,8 +289,9 @@ export default function WorkoutPlan() {
   }, [loading, isAuthenticated, navigate]);
 
   useEffect(() => {
-    if (profileQuery.data && !profileQuery.data.onboarding_completed)
-      navigate("/onboarding");
+    if (!profileQuery.data) return;
+    if (!profileQuery.data.onboarding_completed) navigate("/onboarding");
+    else if (!profileQuery.data.workout_unlocked) navigate("/chat");
   }, [profileQuery.data, navigate]);
 
   const programQuery = trpc.workout.getActive.useQuery(undefined, {

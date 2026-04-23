@@ -101,7 +101,7 @@ async def get_user(user_id: str) -> dict | None:
 
 
 async def upsert_user_profile(user_id: int, **fields) -> dict:
-    allowed = {"name", "age", "height", "weight", "gender", "activity", "goal", "injuries", "onboarding_completed"}
+    allowed = {"name", "age", "height", "weight", "gender", "activity", "goal", "injuries", "onboarding_completed", "nutrition_unlocked", "workout_unlocked"}
     filtered = {k: v for k, v in fields.items() if k in allowed and v is not None}
     async with AsyncSessionLocal() as session:
         if filtered:

@@ -106,6 +106,34 @@ async def get_progress(user_id: str) -> str:
     return json.dumps(progress, ensure_ascii=False)
 
 
+@mcp.tool()
+async def unlock_nutrition(user_id: str, dietary_notes: str = "") -> str:
+    """Разблокировать раздел «План питания» для пользователя.
+
+    Вызывай этот инструмент когда в беседе выяснил:
+    - пищевые предпочтения или ограничения (вегетарианство, аллергии, нелюбимые продукты и т.д.)
+    - желаемое количество приёмов пищи в день
+    - есть ли особые диетические цели помимо основной (набор/похудение)
+    Параметр dietary_notes — краткое резюме предпочтений (1–3 предложения).
+    """
+    await db.upsert_user_profile(int(user_id), nutrition_unlocked=True)
+    return json.dumps({"success": True, "message": "Раздел «План питания» разблокирован."}, ensure_ascii=False)
+
+
+@mcp.tool()
+async def unlock_workout(user_id: str, workout_notes: str = "") -> str:
+    """Разблокировать раздел «План тренировок» для пользователя.
+
+    Вызывай этот инструмент когда в беседе выяснил:
+    - наличие оборудования (зал/дома/без оборудования)
+    - желаемое количество тренировок в неделю
+    - текущий уровень подготовки (новичок/средний/продвинутый)
+    - упражнения или мышечные группы которых нужно избегать
+    Параметр workout_notes — краткое резюме предпочтений (1–3 предложения).
+    """
+    await db.upsert_user_profile(int(user_id), workout_unlocked=True)
+    return json.dumps({"success": True, "message": "Раздел «План тренировок» разблокирован."}, ensure_ascii=False)
+
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

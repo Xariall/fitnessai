@@ -38,8 +38,9 @@ export default function Nutrition() {
   }, [loading, isAuthenticated, navigate]);
 
   useEffect(() => {
-    if (profileQuery.data && !profileQuery.data.onboarding_completed)
-      navigate("/onboarding");
+    if (!profileQuery.data) return;
+    if (!profileQuery.data.onboarding_completed) navigate("/onboarding");
+    else if (!profileQuery.data.nutrition_unlocked) navigate("/chat");
   }, [profileQuery.data, navigate]);
 
   const utils = trpc.useUtils();

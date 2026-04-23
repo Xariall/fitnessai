@@ -184,6 +184,8 @@ export const appRouter = router({
         goal: string | null;
         injuries: string | null;
         onboarding_completed: boolean;
+        nutrition_unlocked: boolean;
+        workout_unlocked: boolean;
       }>;
     }),
 
@@ -203,6 +205,8 @@ export const appRouter = router({
             .optional(),
           injuries: z.string().max(2000).optional(),
           onboarding_completed: z.boolean().optional(),
+          nutrition_unlocked: z.boolean().optional(),
+          workout_unlocked: z.boolean().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
