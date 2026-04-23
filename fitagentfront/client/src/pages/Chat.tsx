@@ -85,6 +85,7 @@ export default function Chat() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pendingHintRef = useRef<string | null>(null);
+  const autoStartedRef = useRef(false);
 
   const handleExit = () => navigate("/");
 
@@ -166,6 +167,28 @@ export default function Chat() {
       navigate("/");
     }
   }, [isAuthenticated, loading, navigate]);
+
+  // Auto-start profile collection for new users
+  useEffect(() => {
+    if (!isNewUser) return;
+    if (conversations.isLoading || profileQuery.isLoading) return;
+    if (autoStartedRef.current) return;
+    autoStartedRef.current = true;
+
+    if (conversations.data && conversations.data.length > 0) {
+      setSelectedConversation(conversations.data[0].id);
+      return;
+    }
+
+    pendingHintRef.current = "__collect_profile__";
+    void createConv.mutateAsync({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isNewUser,
+    conversations.isLoading,
+    conversations.data?.length,
+    profileQuery.isLoading,
+  ]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -393,30 +416,32 @@ export default function Chat() {
                   </p>
                 </div>
               ) : (
-                messages.data?.map(msg => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
+                messages.data
+                  ?.filter(msg => msg.content !== "__collect_profile__")
+                  .map(msg => (
                     <div
-                      className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
-                        msg.role === "user"
-                          ? "bg-purple-500/30 border border-purple-500/50 text-white"
-                          : "glass text-white"
-                      }`}
+                      key={msg.id}
+                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                     >
-                      <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <div
+                        className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
+                          msg.role === "user"
+                            ? "bg-purple-500/30 border border-purple-500/50 text-white"
+                            : "glass text-white"
+                        }`}
+                      >
+                        <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                        <p className="text-xs text-muted-sm mt-2">
+                          {new Date(msg.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-sm mt-2">
-                        {new Date(msg.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
                     </div>
-                  </div>
-                ))
+                  ))
               )}
               {isLoading && (
                 <div className="flex justify-start">
