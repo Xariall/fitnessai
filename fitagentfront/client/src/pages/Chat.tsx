@@ -180,11 +180,39 @@ export default function Chat() {
   };
 
   const handleNewConversation = async () => {
+    // If the current conversation is already empty — just deselect to show hints
+    if (selectedConversation && messages.data?.length === 0) {
+      setSelectedConversation(null);
+      return;
+    }
+    // If there's an existing empty conversation (default title, never used) — switch to it
+    const emptyConv = (conversations.data ?? []).find(
+      c => c.id !== selectedConversation && c.title === "Новый чат"
+    );
+    if (emptyConv) {
+      setSelectedConversation(emptyConv.id);
+      return;
+    }
     await createConv.mutateAsync({});
   };
 
   const handleHintClick = async (text: string) => {
     pendingHintRef.current = text;
+    // Reuse an existing empty conversation if available
+    const emptyConv = (conversations.data ?? []).find(
+      c => c.title === "Новый чат"
+    );
+    if (emptyConv) {
+      setSelectedConversation(emptyConv.id);
+      setIsLoading(true);
+      await sendMsg.mutateAsync({
+        conversationId: emptyConv.id,
+        message: text,
+      });
+      pendingHintRef.current = null;
+      setIsLoading(false);
+      return;
+    }
     await createConv.mutateAsync({});
   };
 
