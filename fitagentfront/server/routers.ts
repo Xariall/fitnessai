@@ -176,6 +176,7 @@ export const appRouter = router({
         id: number;
         name: string | null;
         email: string | null;
+        picture: string | null;
         age: number | null;
         height: number | null;
         weight: number | null;
@@ -183,6 +184,16 @@ export const appRouter = router({
         activity: string | null;
         goal: string | null;
         injuries: string | null;
+        conditions: string | null;
+        food_allergies: string | null;
+        meals_per_day: number | null;
+        diet_type: string | null;
+        food_budget: string | null;
+        experience_level: string | null;
+        training_location: string | null;
+        training_days: number | null;
+        session_duration: string | null;
+        training_budget: string | null;
         onboarding_completed: boolean;
         nutrition_unlocked: boolean;
         workout_unlocked: boolean;
@@ -196,12 +207,22 @@ export const appRouter = router({
           age: z.number().int().min(10).max(120).optional(),
           height: z.number().gt(50).lte(300).optional(),
           weight: z.number().gt(10).lte(500).optional(),
-          gender: z.enum(["male", "female", "other"]).optional(),
+          gender: z
+            .enum(["male", "female", "other", "prefer_not_to_say"])
+            .optional(),
           activity: z
             .enum(["sedentary", "moderate", "active", "athlete"])
             .optional(),
           goal: z
-            .enum(["lose", "gain", "maintain", "recomposition"])
+            .enum([
+              "lose",
+              "gain",
+              "maintain",
+              "recomposition",
+              "endurance",
+              "healthy",
+              "athletic",
+            ])
             .optional(),
           injuries: z.string().max(2000).optional(),
           onboarding_completed: z.boolean().optional(),
@@ -212,6 +233,62 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         return apiRequest("/api/profile", {
           method: "PUT",
+          body: input,
+          cookie: ctx.req.headers.cookie,
+        });
+      }),
+
+    submitOnboarding: protectedProcedure
+      .input(
+        z.object({
+          // Block 1 — required
+          name: z.string().min(1).max(100),
+          gender: z.enum(["male", "female", "prefer_not_to_say"]),
+          age: z.number().int().min(14).max(99),
+          height: z.number().gt(50).lte(300),
+          weight: z.number().gt(10).lte(500),
+          goal: z.enum([
+            "lose",
+            "gain",
+            "maintain",
+            "recomposition",
+            "endurance",
+            "healthy",
+            "athletic",
+          ]),
+          // Block 2 — required
+          conditions: z.string().max(2000),
+          injuries: z.string().max(2000),
+          food_allergies: z.string().max(2000),
+          // Block 3 — optional
+          meals_per_day: z.number().int().min(1).max(10).optional(),
+          diet_type: z.string().max(500).optional(),
+          food_budget: z
+            .enum(["under_5000", "5000_10000", "10000_20000", "over_20000"])
+            .optional(),
+          // Block 4 — optional
+          experience_level: z
+            .enum(["beginner", "some", "intermediate", "advanced"])
+            .optional(),
+          training_location: z.string().max(500).optional(),
+          training_days: z.number().int().min(1).max(7).optional(),
+          session_duration: z
+            .enum(["20_30", "30_45", "45_60", "60_90", "over_90"])
+            .optional(),
+          training_budget: z
+            .enum([
+              "no_budget",
+              "under_2000",
+              "2000_5000",
+              "5000_15000",
+              "over_15000",
+            ])
+            .optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        return apiRequest("/api/onboarding/complete", {
+          method: "POST",
           body: input,
           cookie: ctx.req.headers.cookie,
         });

@@ -101,7 +101,12 @@ async def get_user(user_id: str) -> dict | None:
 
 
 async def upsert_user_profile(user_id: int, **fields) -> dict:
-    allowed = {"name", "age", "height", "weight", "gender", "activity", "goal", "injuries", "onboarding_completed", "nutrition_unlocked", "workout_unlocked"}
+    allowed = {
+        "name", "age", "height", "weight", "gender", "activity", "goal", "injuries",
+        "conditions", "food_allergies", "meals_per_day", "diet_type", "food_budget",
+        "experience_level", "training_location", "training_days", "session_duration",
+        "training_budget", "onboarding_completed", "nutrition_unlocked", "workout_unlocked",
+    }
     filtered = {k: v for k, v in fields.items() if k in allowed and v is not None}
     async with AsyncSessionLocal() as session:
         if filtered:
@@ -117,12 +122,28 @@ async def upsert_user_profile(user_id: int, **fields) -> dict:
         return {
             "id": user.id,
             "name": user.name,
+            "email": user.email,
+            "picture": user.picture,
             "age": user.age,
             "height": user.height,
             "weight": user.weight,
             "gender": user.gender,
             "activity": user.activity,
             "goal": user.goal,
+            "injuries": user.injuries,
+            "conditions": user.conditions,
+            "food_allergies": user.food_allergies,
+            "meals_per_day": user.meals_per_day,
+            "diet_type": user.diet_type,
+            "food_budget": user.food_budget,
+            "experience_level": user.experience_level,
+            "training_location": user.training_location,
+            "training_days": user.training_days,
+            "session_duration": user.session_duration,
+            "training_budget": user.training_budget,
+            "onboarding_completed": user.onboarding_completed,
+            "nutrition_unlocked": user.nutrition_unlocked,
+            "workout_unlocked": user.workout_unlocked,
         }
 
 

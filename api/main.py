@@ -25,7 +25,7 @@ from api.auth import get_current_user, router as auth_router
 from api.nutrition import router as nutrition_router
 from api.workout import router as workout_router
 from api.progress import router as progress_router
-from api.schemas import ChatRequest, ConversationCreate, UserProfileUpdate, WaitlistSignup
+from api.schemas import ChatRequest, ConversationCreate, OnboardingSubmit, UserProfileUpdate, WaitlistSignup
 from database.db import (
     add_message,
     add_to_waitlist,
@@ -133,6 +133,9 @@ async def _run_agent(
     user_message: str,
     conv_title: str = "",
 ) -> str:
+    from database.db import get_user_by_id
+    from agent.prompts import build_user_profile_context
+
     graph = await get_graph()
     thread_id = str(conversation_id)
     config = {"configurable": {"thread_id": thread_id}}
@@ -147,7 +150,13 @@ async def _run_agent(
     if needs_system:
         is_nutrition = "Ассистент по питанию" in conv_title
         prompt = NUTRITION_SYSTEM_PROMPT if is_nutrition else SYSTEM_PROMPT
-        content = prompt.replace("{user_id}", str(user_id))
+        user = await get_user_by_id(user_id)
+        user_context = build_user_profile_context(user) if user else ""
+        content = (
+            prompt
+            .replace("{user_id}", str(user_id))
+            .replace("{user_context}", user_context)
+        )
         messages.append(SystemMessage(content=content, id="system"))
     messages.append(HumanMessage(content=user_message))
 
@@ -266,6 +275,7 @@ async def get_profile(user: User = Depends(get_current_user)) -> dict:
         "id": user.id,
         "name": user.name,
         "email": user.email,
+        "picture": user.picture,
         "age": user.age,
         "height": user.height,
         "weight": user.weight,
@@ -273,6 +283,16 @@ async def get_profile(user: User = Depends(get_current_user)) -> dict:
         "activity": user.activity,
         "goal": user.goal,
         "injuries": user.injuries,
+        "conditions": user.conditions,
+        "food_allergies": user.food_allergies,
+        "meals_per_day": user.meals_per_day,
+        "diet_type": user.diet_type,
+        "food_budget": user.food_budget,
+        "experience_level": user.experience_level,
+        "training_location": user.training_location,
+        "training_days": user.training_days,
+        "session_duration": user.session_duration,
+        "training_budget": user.training_budget,
         "onboarding_completed": user.onboarding_completed,
         "nutrition_unlocked": user.nutrition_unlocked,
         "workout_unlocked": user.workout_unlocked,
@@ -285,6 +305,21 @@ async def update_profile(
     user: User = Depends(get_current_user),
 ) -> dict:
     return await upsert_user_profile(user.id, **body.model_dump(exclude_none=True))
+
+
+@app.post("/api/onboarding/complete")
+async def complete_onboarding(
+    body: OnboardingSubmit,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Persist full onboarding profile and unlock all sections."""
+    return await upsert_user_profile(
+        user.id,
+        **body.model_dump(),
+        onboarding_completed=True,
+        nutrition_unlocked=True,
+        workout_unlocked=True,
+    )
 
 
 # ── Waitlist ──────────────────────────────────────────────────────────────────

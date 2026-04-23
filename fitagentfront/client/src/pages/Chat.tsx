@@ -8,7 +8,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   Send,
@@ -23,17 +23,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
-
-// ── Scripted onboarding questions ────────────────────────────────────────────
-// Asked one-by-one without LLM. Answers are sent in ONE batch to LLM at the end.
-const ONBOARDING_QUESTIONS = [
-  "Расскажи как ты обычно питаешься? Что входит в твой типичный день еды?",
-  "Есть ли продукты которые ты не ешь — аллергии, непереносимость, вегетарианство или просто не любишь?",
-  "Сколько раз в день ты обычно ешь? Примерно какой бюджет в месяц тратишь на питание?",
-  "Занимался ли ты раньше спортом или фитнесом? Расскажи о своём опыте.",
-  "Есть ли у тебя доступ к спортзалу или оборудование дома (гантели, турник и т.д.)?",
-  "Сколько дней в неделю и примерно сколько времени в день готов тренироваться?",
-];
 
 const REGULAR_HINTS = [
   { icon: "💪", text: "Составь план тренировки на сегодня" },
@@ -61,75 +50,6 @@ const DOCKER_STEPS = [
   { label: "5. View logs", cmd: "docker compose logs -f api" },
 ];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function buildOnboardingSummary(
-  profile: {
-    name?: string | null;
-    age?: number | null;
-    height?: number | null;
-    weight?: number | null;
-    gender?: string | null;
-    goal?: string | null;
-    activity?: string | null;
-    injuries?: string | null;
-  },
-  answers: string[]
-): string {
-  const GOAL_RU: Record<string, string> = {
-    lose: "похудение",
-    gain: "набор массы",
-    maintain: "поддержание формы",
-    recomposition: "рекомпозиция",
-  };
-  const ACTIVITY_RU: Record<string, string> = {
-    sedentary: "сидячий",
-    moderate: "умеренный",
-    active: "активный",
-    athlete: "атлет",
-  };
-  const GENDER_RU: Record<string, string> = {
-    male: "мужской",
-    female: "женский",
-    other: "другой",
-  };
-
-  const profileLines = [
-    profile.name ? `Имя: ${profile.name}` : null,
-    profile.age ? `Возраст: ${profile.age} лет` : null,
-    profile.height ? `Рост: ${profile.height} см` : null,
-    profile.weight ? `Вес: ${profile.weight} кг` : null,
-    profile.gender
-      ? `Пол: ${GENDER_RU[profile.gender] ?? profile.gender}`
-      : null,
-    profile.goal ? `Цель: ${GOAL_RU[profile.goal] ?? profile.goal}` : null,
-    profile.activity
-      ? `Уровень активности: ${ACTIVITY_RU[profile.activity] ?? profile.activity}`
-      : null,
-    profile.injuries
-      ? `Заболевания/травмы: ${profile.injuries}`
-      : "Заболевания/травмы: нет",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const qa = ONBOARDING_QUESTIONS.map(
-    (q, i) => `Вопрос: ${q}\nОтвет пользователя: ${answers[i] ?? "—"}`
-  ).join("\n\n");
-
-  return `__ONBOARDING_SUMMARY__
-Данные из анкеты пользователя (не спрашивай повторно):
-${profileLines}
-
-Дополнительные ответы пользователя:
-${qa}
-
-Задача:
-1. Вызови unlock_nutrition — данные по питанию собраны
-2. Вызови unlock_workout — данные по тренировкам собраны
-3. После вызова инструментов дай тёплое персональное приветствие, кратко резюмируй что узнал о пользователе и скажи что все разделы теперь доступны`;
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Chat() {
@@ -141,9 +61,6 @@ export default function Chat() {
     retry: false,
   });
   const onboarded = profileQuery.data?.onboarding_completed ?? true;
-  const nutritionUnlocked = profileQuery.data?.nutrition_unlocked ?? false;
-  const workoutUnlocked = profileQuery.data?.workout_unlocked ?? false;
-  const isNewUser = onboarded && (!nutritionUnlocked || !workoutUnlocked);
 
   const [selectedConversation, setSelectedConversation] = useState<
     number | null
@@ -152,13 +69,7 @@ export default function Chat() {
   const [isLoading, setIsLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  // Scripted onboarding state
-  const [scriptStep, setScriptStep] = useState<number | null>(null);
-  const [scriptAnswers, setScriptAnswers] = useState<string[]>([]);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const autoStartedRef = useRef(false);
-  const startScriptOnCreateRef = useRef(false);
 
   const handleExit = () => navigate("/");
 
@@ -198,11 +109,6 @@ export default function Chat() {
     onSuccess: data => {
       setSelectedConversation(data.conversationId);
       conversations.refetch();
-      if (startScriptOnCreateRef.current) {
-        startScriptOnCreateRef.current = false;
-        setScriptStep(0);
-        setScriptAnswers([]);
-      }
     },
     onError: () => {
       toast.error("Failed to create conversation");
@@ -225,7 +131,7 @@ export default function Chat() {
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.data, scriptStep, scriptAnswers]);
+  }, [messages.data]);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -233,108 +139,9 @@ export default function Chat() {
     if (!isAuthenticated) navigate("/");
   }, [isAuthenticated, loading, navigate]);
 
-  // Auto-start scripted flow for new users
-  useEffect(() => {
-    if (!isNewUser) return;
-    if (conversations.isLoading || profileQuery.isLoading) return;
-    if (autoStartedRef.current) return;
-    autoStartedRef.current = true;
-
-    if (conversations.data && conversations.data.length > 0) {
-      // Existing conversation — select it; script starts via the next effect
-      setSelectedConversation(conversations.data[0].id);
-      return;
-    }
-
-    // No conversations — create one and start script
-    startScriptOnCreateRef.current = true;
-    void createConv.mutateAsync({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isNewUser,
-    conversations.isLoading,
-    conversations.data?.length,
-    profileQuery.isLoading,
-  ]);
-
-  // Start script when a conversation is selected that has no real messages
-  useEffect(() => {
-    if (!isNewUser) return;
-    if (!selectedConversation) return;
-    if (messages.isLoading) return;
-    if (scriptStep !== null) return; // already in script mode
-
-    const realMessages = (messages.data ?? []).filter(
-      m => !m.content.startsWith("__ONBOARDING_SUMMARY__")
-    );
-    if (realMessages.length === 0) {
-      setScriptStep(0);
-      setScriptAnswers([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isNewUser,
-    selectedConversation,
-    messages.isLoading,
-    messages.data?.length,
-  ]);
-
-  // Build the list of scripted messages to show
-  const scriptedMessages = useMemo(() => {
-    if (scriptStep === null) return [];
-    const result: Array<{ id: string; role: string; content: string }> = [];
-    for (
-      let i = 0;
-      i <= Math.min(scriptStep, ONBOARDING_QUESTIONS.length - 1);
-      i++
-    ) {
-      result.push({
-        id: `q-${i}`,
-        role: "assistant",
-        content: ONBOARDING_QUESTIONS[i],
-      });
-      if (scriptAnswers[i] !== undefined) {
-        result.push({ id: `a-${i}`, role: "user", content: scriptAnswers[i] });
-      }
-    }
-    return result;
-  }, [scriptStep, scriptAnswers]);
-
-  // Send all collected answers to LLM in one call
-  const sendOnboardingSummary = async (answers: string[]) => {
-    if (!selectedConversation || !profileQuery.data) return;
-    const summary = buildOnboardingSummary(profileQuery.data, answers);
-    setIsLoading(true);
-    await sendMsg.mutateAsync({
-      conversationId: selectedConversation,
-      message: summary,
-    });
-    setIsLoading(false);
-  };
-
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageInput.trim()) return;
-
-    // ── Scripted mode: collect answers one by one ──────────────────────────
-    if (scriptStep !== null) {
-      const answer = messageInput.trim();
-      const newAnswers = [...scriptAnswers, answer];
-      setScriptAnswers(newAnswers);
-      setMessageInput("");
-
-      if (scriptStep < ONBOARDING_QUESTIONS.length - 1) {
-        setScriptStep(scriptStep + 1);
-      } else {
-        // All answered — send summary to LLM
-        setScriptStep(null);
-        await sendOnboardingSummary(newAnswers);
-      }
-      return;
-    }
-
-    // ── Normal mode ────────────────────────────────────────────────────────
-    if (!selectedConversation) return;
+    if (!messageInput.trim() || !selectedConversation) return;
     setIsLoading(true);
     await sendMsg.mutateAsync({
       conversationId: selectedConversation,
@@ -372,7 +179,6 @@ export default function Chat() {
       setIsLoading(false);
       return;
     }
-    // Will send on createConv.onSuccess via pendingHint — reuse inline
     setIsLoading(true);
     const conv = await createConv.mutateAsync({});
     await sendMsg.mutateAsync({
@@ -383,11 +189,6 @@ export default function Chat() {
   };
 
   if (loading || !isAuthenticated) return null;
-
-  // Visible real messages (filter hidden summaries)
-  const visibleMessages = (messages.data ?? []).filter(
-    m => !m.content.startsWith("__ONBOARDING_SUMMARY__")
-  );
 
   return (
     <div className="h-screen bg-gradient-dark relative overflow-hidden flex">
@@ -402,7 +203,7 @@ export default function Chat() {
         <div className="p-4 border-b border-white/10">
           <button
             onClick={handleNewConversation}
-            disabled={createConv.isPending || scriptStep !== null}
+            disabled={createConv.isPending}
             className="w-full btn-primary flex items-center justify-center gap-2 text-sm"
           >
             <Plus size={18} />
@@ -475,7 +276,7 @@ export default function Chat() {
               <DialogContent className="bg-gray-900/95 border-white/10 text-white max-w-lg">
                 <DialogHeader>
                   <DialogTitle className="text-white flex items-center gap-2">
-                    🐳 Docker Setup
+                    Docker Setup
                   </DialogTitle>
                 </DialogHeader>
                 <p className="text-sm text-white/60 mb-4">
@@ -524,55 +325,16 @@ export default function Chat() {
               </button>
               <div className="flex-1">
                 <h2 className="text-lg font-bold text-white">Chat</h2>
-                {scriptStep !== null && (
-                  <p className="text-xs text-purple-400/70">
-                    Вопрос {scriptStep + 1} из {ONBOARDING_QUESTIONS.length}
-                  </p>
-                )}
               </div>
-              {scriptStep !== null && (
-                <div className="flex gap-1">
-                  {ONBOARDING_QUESTIONS.map((_, i) => (
-                    <div
-                      key={i}
-                      className={`h-1 w-5 rounded-full transition-all duration-300 ${
-                        i < scriptAnswers.length
-                          ? "bg-purple-500"
-                          : i === scriptStep
-                            ? "bg-purple-400/60"
-                            : "bg-white/10"
-                      }`}
-                    />
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {/* Scripted messages (local, no LLM) */}
-              {scriptStep !== null ? (
-                scriptedMessages.map(msg => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
-                    <div
-                      className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
-                        msg.role === "user"
-                          ? "bg-purple-500/30 border border-purple-500/50 text-white"
-                          : "glass text-white"
-                      }`}
-                    >
-                      <p className="text-sm leading-relaxed">{msg.content}</p>
-                    </div>
-                  </div>
-                ))
-              ) : messages.isLoading ? (
+              {messages.isLoading ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-muted-sm">Загрузка...</div>
                 </div>
-              ) : visibleMessages.length === 0 ? (
+              ) : (messages.data ?? []).length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full gap-4">
                   <MessageSquare size={48} className="text-purple-400/30" />
                   <p className="text-muted-sm">
@@ -580,7 +342,7 @@ export default function Chat() {
                   </p>
                 </div>
               ) : (
-                visibleMessages.map(msg => (
+                (messages.data ?? []).map(msg => (
                   <div
                     key={msg.id}
                     className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
@@ -625,11 +387,7 @@ export default function Chat() {
               <form onSubmit={handleSendMessage} className="flex gap-3">
                 <Input
                   type="text"
-                  placeholder={
-                    scriptStep !== null
-                      ? "Напиши ответ..."
-                      : "Ask your AI trainer..."
-                  }
+                  placeholder="Ask your AI trainer..."
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
                   disabled={isLoading || sendMsg.isPending}
@@ -657,10 +415,11 @@ export default function Chat() {
               {!onboarded ? (
                 <>
                   <h2 className="text-2xl font-bold text-white mb-1">
-                    Привет! Давай познакомимся 👋
+                    Сначала заполни профиль
                   </h2>
                   <p className="text-white/40 text-sm">
-                    Начни чат — тренер задаст несколько вопросов
+                    Пройди короткий онбординг, чтобы тренер знал о тебе всё
+                    необходимое
                   </p>
                 </>
               ) : (
@@ -675,7 +434,7 @@ export default function Chat() {
               )}
             </div>
 
-            {!isNewUser && (
+            {onboarded && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
                 {REGULAR_HINTS.map(hint => (
                   <button
