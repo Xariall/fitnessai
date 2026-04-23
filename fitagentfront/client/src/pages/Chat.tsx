@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   Send,
   Plus,
@@ -339,7 +340,9 @@ export default function Chat() {
                           : "glass text-white"
                       }`}
                     >
-                      <p className="text-sm leading-relaxed">{msg.content}</p>
+                      <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
                       <p className="text-xs text-muted-sm mt-2">
                         {new Date(msg.created_at).toLocaleTimeString([], {
                           hour: "2-digit",
