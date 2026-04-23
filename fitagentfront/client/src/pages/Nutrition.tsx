@@ -26,9 +26,15 @@ export default function Nutrition() {
   const [showModal, setShowModal] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
 
+  const profileQuery = trpc.profile.get.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+
   useEffect(() => {
     if (!loading && !isAuthenticated) navigate("/");
   }, [loading, isAuthenticated, navigate]);
+
+  useEffect(() => {
+    if (profileQuery.data && !profileQuery.data.onboarding_completed) navigate("/chat");
+  }, [profileQuery.data, navigate]);
 
   const utils = trpc.useUtils();
 

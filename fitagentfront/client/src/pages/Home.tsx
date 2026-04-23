@@ -28,7 +28,7 @@ export default function Home() {
     if (!isAuthenticated) return;
     if (profileQuery.isLoading || profileQuery.data === undefined) return;
     if (!profileQuery.data?.onboarding_completed) {
-      navigate("/onboarding");
+      navigate("/chat");
     } else {
       navigate("/dashboard");
     }

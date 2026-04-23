@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   ChevronLeft,
@@ -202,6 +202,16 @@ export default function Progress() {
   const [showLogModal, setShowLogModal] = useState(false);
 
   const utils = trpc.useUtils();
+
+  const profileQuery = trpc.profile.get.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated) navigate("/");
+  }, [loading, isAuthenticated, navigate]);
+
+  useEffect(() => {
+    if (profileQuery.data && !profileQuery.data.onboarding_completed) navigate("/chat");
+  }, [profileQuery.data, navigate]);
 
   const summaryQuery = trpc.progress.getSummary.useQuery(undefined, {
     enabled: isAuthenticated,

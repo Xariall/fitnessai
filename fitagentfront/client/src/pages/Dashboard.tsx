@@ -12,7 +12,9 @@ import {
   Twitter,
   Github,
   Send,
+  Lock,
 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 
 const CARDS = [
   {
@@ -65,11 +67,18 @@ export default function Dashboard() {
   const { user, isAuthenticated, loading, logout } = useAuth();
   const [, navigate] = useLocation();
 
+  const profileQuery = trpc.profile.get.useQuery(undefined, {
+    enabled: isAuthenticated,
+    retry: false,
+  });
+
   useEffect(() => {
     if (!loading && !isAuthenticated) navigate("/");
   }, [loading, isAuthenticated, navigate]);
 
   if (loading || !isAuthenticated) return null;
+
+  const onboarded = profileQuery.data?.onboarding_completed ?? true;
 
   return (
     <div className="min-h-screen bg-gradient-dark relative overflow-hidden flex flex-col">
@@ -144,42 +153,72 @@ export default function Dashboard() {
       {/* Main */}
       <main className="relative z-10 flex-1 w-full max-w-6xl mx-auto px-4 md:px-6 py-12 md:py-16">
         {/* Welcome */}
-        <div className="mb-12 animate-slide-in-down">
+        <div className="mb-10 animate-slide-in-down">
           <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
             Привет, {user?.name?.split(" ")[0] || "спортсмен"} 👋
           </h1>
           <p className="text-white/50">Выбери раздел чтобы начать</p>
         </div>
 
+        {/* Onboarding banner */}
+        {!onboarded && (
+          <div className="mb-8 rounded-2xl bg-purple-500/10 border border-purple-500/30 px-5 py-4 flex items-center gap-4 animate-slide-in-down">
+            <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+              <Lock size={16} className="text-purple-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white">Сначала познакомимся</p>
+              <p className="text-xs text-white/50 mt-0.5">
+                Пройди короткий онбординг в чате с тренером — остальные разделы откроются автоматически
+              </p>
+            </div>
+            <button
+              onClick={() => navigate("/chat")}
+              className="flex-shrink-0 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition-colors"
+            >
+              Начать →
+            </button>
+          </div>
+        )}
+
         {/* Cards grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           {CARDS.map((card, i) => {
             const Icon = card.icon;
+            const isChat = card.href === "/chat";
+            const locked = !onboarded && !isChat;
             return (
               <button
                 key={card.title}
-                onClick={() => navigate(card.href)}
-                className={`group relative text-left p-6 rounded-2xl border bg-gradient-to-br ${card.accent} ${card.border} ${card.shadow} backdrop-blur-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 animate-slide-in-up`}
+                onClick={() => locked ? navigate("/chat") : navigate(card.href)}
+                className={[
+                  "group relative text-left p-6 rounded-2xl border bg-gradient-to-br backdrop-blur-sm transition-all duration-300 animate-slide-in-up",
+                  locked
+                    ? "opacity-50 cursor-default border-white/10 from-white/[0.02] to-white/[0.01]"
+                    : `${card.accent} ${card.border} ${card.shadow} hover:shadow-xl hover:-translate-y-1`,
+                ].join(" ")}
                 style={{ animationDelay: `${i * 0.1}s` }}
               >
                 <div className="flex items-start gap-4">
                   <div
-                    className={`w-12 h-12 rounded-xl bg-gradient-to-br ${card.iconBg} border border-white/10 flex items-center justify-center flex-shrink-0 transition-transform duration-300 group-hover:scale-110`}
+                    className={`w-12 h-12 rounded-xl bg-gradient-to-br ${locked ? "from-white/5 to-white/5" : card.iconBg} border border-white/10 flex items-center justify-center flex-shrink-0 transition-transform duration-300 ${locked ? "" : "group-hover:scale-110"}`}
                   >
-                    <Icon size={22} className={card.iconColor} />
+                    {locked ? <Lock size={20} className="text-white/30" /> : <Icon size={22} className={card.iconColor} />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-bold text-white mb-1">
+                    <h3 className={`text-lg font-bold mb-1 ${locked ? "text-white/40" : "text-white"}`}>
                       {card.title}
                     </h3>
-                    <p className="text-sm text-white/50 leading-relaxed">
-                      {card.desc}
+                    <p className="text-sm text-white/30 leading-relaxed">
+                      {locked ? "Доступно после онбординга" : card.desc}
                     </p>
                   </div>
-                  <ChevronRight
-                    size={18}
-                    className="text-white/20 group-hover:text-white/60 group-hover:translate-x-1 transition-all duration-200 flex-shrink-0 mt-1"
-                  />
+                  {!locked && (
+                    <ChevronRight
+                      size={18}
+                      className="text-white/20 group-hover:text-white/60 group-hover:translate-x-1 transition-all duration-200 flex-shrink-0 mt-1"
+                    />
+                  )}
                 </div>
               </button>
             );

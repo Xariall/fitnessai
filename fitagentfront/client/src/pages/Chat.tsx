@@ -49,6 +49,9 @@ const DOCKER_STEPS = [
 export default function Chat() {
   const { user, isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
+
+  const profileQuery = trpc.profile.get.useQuery(undefined, { enabled: isAuthenticated, retry: false });
+  const onboarded = profileQuery.data?.onboarding_completed ?? true;
   const [selectedConversation, setSelectedConversation] = useState<
     number | null
   >(null);
@@ -64,6 +67,8 @@ export default function Chat() {
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 1500);
   };
+
+  const utils = trpc.useUtils();
 
   // Queries
   const conversations = trpc.chat.getConversations.useQuery(undefined, {
@@ -91,6 +96,8 @@ export default function Chat() {
       setMessageInput("");
       messages.refetch();
       conversations.refetch();
+      // Refresh profile so Dashboard unlocks as soon as AI calls complete_onboarding
+      utils.profile.get.invalidate();
     },
     onError: error => {
       toast.error(error.message || "Failed to send message");
@@ -378,22 +385,35 @@ export default function Chat() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center gap-6">
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
             <MessageSquare size={64} className="text-purple-400/30" />
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-2">
-                Welcome to FitAgent Chat
-              </h2>
-              <p className="text-muted-sm mb-6">
-                Start a new conversation to get personalized fitness and
-                nutrition advice
-              </p>
+            <div className="text-center max-w-sm">
+              {!onboarded ? (
+                <>
+                  <h2 className="text-2xl font-bold text-white mb-2">
+                    Привет! Давай познакомимся 👋
+                  </h2>
+                  <p className="text-white/50 mb-6 leading-relaxed">
+                    Начни новый чат — тренер задаст несколько вопросов о твоих целях и параметрах.
+                    После этого откроются все разделы приложения.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-2xl font-bold text-white mb-2">
+                    Чат с тренером
+                  </h2>
+                  <p className="text-white/50 mb-6">
+                    Начни новый диалог и получи персональные советы по тренировкам и питанию
+                  </p>
+                </>
+              )}
               <button
                 onClick={handleNewConversation}
                 disabled={createConv.isPending}
                 className="btn-primary"
               >
-                Start New Chat
+                Начать чат
               </button>
             </div>
           </div>

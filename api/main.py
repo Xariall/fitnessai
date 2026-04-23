@@ -127,7 +127,13 @@ def _friendly_error(e: Exception) -> str:
     return "Произошла ошибка. Попробуйте ещё раз."
 
 
-async def _run_agent(user_id: int, conversation_id: int, user_message: str, conv_title: str = "") -> str:
+async def _run_agent(
+    user_id: int,
+    conversation_id: int,
+    user_message: str,
+    conv_title: str = "",
+    onboarding_completed: bool = True,
+) -> str:
     graph = await get_graph()
     thread_id = str(conversation_id)
     config = {"configurable": {"thread_id": thread_id}}
@@ -142,9 +148,10 @@ async def _run_agent(user_id: int, conversation_id: int, user_message: str, conv
     if needs_system:
         is_nutrition = "Ассистент по питанию" in conv_title
         prompt = NUTRITION_SYSTEM_PROMPT if is_nutrition else SYSTEM_PROMPT
-        messages.append(SystemMessage(
-            content=prompt.format(user_id=str(user_id)), id="system"
-        ))
+        content = prompt.replace("{user_id}", str(user_id)).replace(
+            "{onboarding_completed}", str(onboarding_completed)
+        )
+        messages.append(SystemMessage(content=content, id="system"))
     messages.append(HumanMessage(content=user_message))
 
     response = await graph.ainvoke({"messages": messages}, config=config)
@@ -198,7 +205,7 @@ async def chat_in_conversation(
     await add_message(conv_id, "user", body.message)
 
     try:
-        reply = await _run_agent(user.id, conv_id, body.message, conv.title)
+        reply = await _run_agent(user.id, conv_id, body.message, conv.title, user.onboarding_completed)
     except Exception as e:
         logger.exception("Agent error")
         reply = _friendly_error(e)
