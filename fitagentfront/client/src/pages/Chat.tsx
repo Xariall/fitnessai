@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Copy,
   Check,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -97,6 +98,17 @@ export default function Chat() {
     },
   });
 
+  const deleteConv = trpc.chat.deleteConversation.useMutation({
+    onSuccess: (_, { conversationId: deletedId }) => {
+      conversations.refetch();
+      if (selectedConversation === deletedId) {
+        const remaining = (conversations.data ?? []).filter(c => c.id !== deletedId);
+        setSelectedConversation(remaining.length > 0 ? remaining[0].id : null);
+      }
+    },
+    onError: () => toast.error("Не удалось удалить чат"),
+  });
+
   // Auto-scroll to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -131,7 +143,7 @@ export default function Chat() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-dark relative overflow-hidden flex">
+    <div className="h-screen bg-gradient-dark relative overflow-hidden flex">
       {/* Animated background orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-purple-600 to-purple-800 rounded-full blur-3xl opacity-10 animate-float"></div>
@@ -153,30 +165,42 @@ export default function Chat() {
         </div>
 
         {/* Conversations List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        <div className="flex-1 overflow-y-auto p-4 space-y-1">
           {conversations.data?.map(conv => (
-            <button
+            <div
               key={conv.id}
-              onClick={() => setSelectedConversation(conv.id)}
-              className={`w-full text-left p-3 rounded-lg transition-all duration-300 ${
+              className={`group flex items-center gap-1 rounded-lg transition-all duration-200 ${
                 selectedConversation === conv.id
                   ? "bg-purple-500/30 border border-purple-500/50"
                   : "hover:bg-white/5 border border-transparent"
               }`}
             >
-              <div className="flex items-start gap-2">
-                <MessageSquare
-                  size={16}
-                  className="mt-1 flex-shrink-0 text-purple-400"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white truncate">{conv.title}</p>
-                  <p className="text-xs text-muted-sm mt-1">
-                    {new Date(conv.updated_at).toLocaleDateString()}
-                  </p>
+              <button
+                onClick={() => setSelectedConversation(conv.id)}
+                className="flex-1 min-w-0 text-left p-3"
+              >
+                <div className="flex items-start gap-2">
+                  <MessageSquare
+                    size={16}
+                    className="mt-0.5 flex-shrink-0 text-purple-400"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white truncate">{conv.title}</p>
+                    <p className="text-xs text-muted-sm mt-0.5">
+                      {new Date(conv.updated_at).toLocaleDateString()}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
+              <button
+                onClick={() => deleteConv.mutate({ conversationId: conv.id })}
+                disabled={deleteConv.isPending}
+                title="Удалить чат"
+                className="flex-shrink-0 mr-2 p-1.5 rounded-md text-white/20 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition-all duration-150 disabled:opacity-30"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           ))}
         </div>
 
