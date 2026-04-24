@@ -31,7 +31,7 @@ app.get("/api/oauth/finish", (req, res) => {
   }
   res.cookie("session_token", token, {
     httpOnly: true,
-    secure: true,          // always true on Vercel (HTTPS)
+    secure: true, // always true on Vercel (HTTPS)
     sameSite: "lax",
     path: "/",
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
@@ -83,7 +83,9 @@ app.post("/api/chat-stream/:convId", async (req, res) => {
       return;
     }
 
-    readable = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]);
+    readable = Readable.fromWeb(
+      upstream.body as Parameters<typeof Readable.fromWeb>[0]
+    );
     readable.pipe(res);
     req.on("close", () => readable?.destroy());
   } catch {
