@@ -264,7 +264,7 @@ export const appRouter = router({
           meals_per_day: z.number().int().min(1).max(10).optional(),
           diet_type: z.string().max(500).optional(),
           food_budget: z
-            .enum(["under_5000", "5000_10000", "10000_20000", "over_20000"])
+            .enum(["under_30000", "30000_60000", "60000_120000", "over_120000"])
             .optional(),
           // Block 4 — optional
           experience_level: z
@@ -278,10 +278,10 @@ export const appRouter = router({
           training_budget: z
             .enum([
               "no_budget",
-              "under_2000",
-              "2000_5000",
-              "5000_15000",
-              "over_15000",
+              "under_10000",
+              "10000_25000",
+              "25000_60000",
+              "over_60000",
             ])
             .optional(),
         })

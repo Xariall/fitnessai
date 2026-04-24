@@ -32,17 +32,17 @@ export type TrainingLocation =
   | "mix";
 
 export type FoodBudget =
-  | "under_5000"
-  | "5000_10000"
-  | "10000_20000"
-  | "over_20000";
+  | "under_30000"
+  | "30000_60000"
+  | "60000_120000"
+  | "over_120000";
 
 export type TrainingBudget =
   | "no_budget"
-  | "under_2000"
-  | "2000_5000"
-  | "5000_15000"
-  | "over_15000";
+  | "under_10000"
+  | "10000_25000"
+  | "25000_60000"
+  | "over_60000";
 
 export type SessionDuration = "20_30" | "30_45" | "45_60" | "60_90" | "over_90";
 
