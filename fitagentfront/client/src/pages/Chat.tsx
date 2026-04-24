@@ -197,12 +197,65 @@ export default function Chat() {
   >(null);
   const [messageInput, setMessageInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const qParamHandled = useRef(false);
 
   const handleExit = () => navigate("/");
+
+  const sendStreamingMessage = async (message: string, convId: number) => {
+    setIsLoading(true);
+    setStreamingContent("");
+    let accumulated = "";
+    try {
+      const response = await fetch(`/api/chat-stream/${convId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      if (!response.ok || !response.body) throw new Error("Stream failed");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const payload = JSON.parse(line.slice(6)) as {
+              type: string;
+              text?: string;
+            };
+            if (payload.type === "token" && payload.text) {
+              accumulated += payload.text;
+              setStreamingContent(accumulated);
+            } else if (payload.type === "done") {
+              break outer;
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
+        }
+      }
+    } catch {
+      toast.error("Ошибка соединения. Попробуйте ещё раз.");
+    } finally {
+      setStreamingContent("");
+      setIsLoading(false);
+      messages.refetch();
+      conversations.refetch();
+      utils.profile.get.invalidate();
+      utils.workout.getActive.invalidate();
+      utils.workout.getAll.invalidate();
+      utils.nutrition.getPlan.invalidate();
+    }
+  };
 
   const handleCopy = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
@@ -263,10 +316,10 @@ export default function Chat() {
     onError: () => toast.error("Не удалось удалить чат"),
   });
 
-  // Auto-scroll
+  // Auto-scroll on new messages or streaming content
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.data]);
+  }, [messages.data, streamingContent]);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -304,22 +357,17 @@ export default function Chat() {
           const result = await createConv.mutateAsync({});
           convId = (result as { conversationId: number }).conversationId;
         }
-        setIsLoading(true);
-        await sendMsg.mutateAsync({ conversationId: convId, message: q });
-        setIsLoading(false);
+        await sendStreamingMessage(q, convId);
       })();
     }
   }, [isAuthenticated, conversations.isLoading, conversations.data]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageInput.trim() || !selectedConversation) return;
-    setIsLoading(true);
-    await sendMsg.mutateAsync({
-      conversationId: selectedConversation,
-      message: messageInput,
-    });
-    setIsLoading(false);
+    if (!messageInput.trim() || !selectedConversation || isLoading) return;
+    const msg = messageInput;
+    setMessageInput("");
+    await sendStreamingMessage(msg, selectedConversation);
   };
 
   const handleNewConversation = async () => {
@@ -338,13 +386,8 @@ export default function Chat() {
   };
 
   const handleQuickAction = async (text: string) => {
-    if (!selectedConversation || isLoading || sendMsg.isPending) return;
-    setIsLoading(true);
-    await sendMsg.mutateAsync({
-      conversationId: selectedConversation,
-      message: text,
-    });
-    setIsLoading(false);
+    if (!selectedConversation || isLoading) return;
+    await sendStreamingMessage(text, selectedConversation);
   };
 
   const handleHintClick = async (text: string) => {
@@ -353,21 +396,14 @@ export default function Chat() {
     );
     if (emptyConv) {
       setSelectedConversation(emptyConv.id);
-      setIsLoading(true);
-      await sendMsg.mutateAsync({
-        conversationId: emptyConv.id,
-        message: text,
-      });
-      setIsLoading(false);
+      await sendStreamingMessage(text, emptyConv.id);
       return;
     }
-    setIsLoading(true);
     const conv = await createConv.mutateAsync({});
-    await sendMsg.mutateAsync({
-      conversationId: (conv as any).conversationId,
-      message: text,
-    });
-    setIsLoading(false);
+    await sendStreamingMessage(
+      text,
+      (conv as { conversationId: number }).conversationId
+    );
   };
 
   if (loading || !isAuthenticated) return null;
@@ -569,7 +605,7 @@ export default function Chat() {
                                       key={reply}
                                       type="button"
                                       onClick={() => handleQuickAction(reply)}
-                                      disabled={sendMsg.isPending}
+                                      disabled={isLoading}
                                       className="px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-xs text-purple-300 hover:bg-purple-500/20 hover:text-white transition-all duration-200 disabled:opacity-30"
                                     >
                                       {reply}
@@ -599,7 +635,16 @@ export default function Chat() {
                 })()
               )}
 
-              {isLoading && (
+              {isLoading && streamingContent && (
+                <div className="flex justify-start">
+                  <div className="glass max-w-xs lg:max-w-md px-4 py-3 rounded-lg text-white">
+                    <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
+                      <ReactMarkdown>{streamingContent + "▋"}</ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {isLoading && !streamingContent && (
                 <div className="flex justify-start">
                   <div className="glass px-4 py-3 rounded-lg">
                     <div className="flex gap-2">
@@ -622,7 +667,7 @@ export default function Chat() {
                     key={action.text}
                     type="button"
                     onClick={() => handleQuickAction(action.text)}
-                    disabled={isLoading || sendMsg.isPending}
+                    disabled={isLoading || isLoading}
                     className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.06] border border-white/10 hover:bg-white/10 hover:border-purple-500/30 text-xs text-white/50 hover:text-white transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <span>{action.icon}</span>
@@ -636,14 +681,12 @@ export default function Chat() {
                   placeholder="Ask your AI trainer..."
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
-                  disabled={isLoading || sendMsg.isPending}
+                  disabled={isLoading || isLoading}
                   className="bg-white/10 border-white/20 text-white placeholder:text-white/40 flex-1"
                 />
                 <button
                   type="submit"
-                  disabled={
-                    isLoading || sendMsg.isPending || !messageInput.trim()
-                  }
+                  disabled={isLoading || isLoading || !messageInput.trim()}
                   className="btn-primary p-3 rounded-xl flex items-center justify-center"
                 >
                   <Send size={20} />

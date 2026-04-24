@@ -6,6 +6,7 @@ Serves only /api/* routes; the React frontend (fitagentfront) runs separately.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -13,7 +14,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -164,6 +165,54 @@ async def _run_agent(
     return _extract_text(response)
 
 
+async def _stream_agent(
+    user_id: int,
+    conversation_id: int,
+    user_message: str,
+    conv_title: str = "",
+):
+    """Async generator that yields text tokens from LangGraph astream_events."""
+    from database.db import get_user_by_id
+    from agent.prompts import build_user_profile_context
+
+    graph = await get_graph()
+    thread_id = str(conversation_id)
+    config = {"configurable": {"thread_id": thread_id}}
+
+    state = await graph.aget_state(config)
+    needs_system = not state.values.get("messages")
+
+    messages = []
+    if needs_system:
+        is_nutrition = "Ассистент по питанию" in conv_title
+        prompt = NUTRITION_SYSTEM_PROMPT if is_nutrition else SYSTEM_PROMPT
+        user = await get_user_by_id(user_id)
+        user_context = build_user_profile_context(user) if user else ""
+        content = (
+            prompt
+            .replace("{user_id}", str(user_id))
+            .replace("{user_context}", user_context)
+        )
+        messages.append(SystemMessage(content=content, id="system"))
+    messages.append(HumanMessage(content=user_message))
+
+    async for event in graph.astream_events({"messages": messages}, config=config, version="v2"):
+        if event["event"] != "on_chat_model_stream":
+            continue
+        chunk = event["data"]["chunk"]
+        # Skip tool-call-only chunks (no user-visible text)
+        if getattr(chunk, "tool_calls", None):
+            continue
+        content = chunk.content
+        if isinstance(content, str):
+            if content:
+                yield content
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                    yield part["text"]
+
+
 # ── Conversations ─────────────────────────────────────────────────────────────
 
 @app.post("/api/conversations")
@@ -224,6 +273,50 @@ async def chat_in_conversation(
         await update_conversation_title(conv_id, title)
 
     return {"response": reply}
+
+
+@app.post("/api/conversations/{conv_id}/chat/stream")
+@limiter.limit("20/minute")
+async def chat_stream(
+    conv_id: int,
+    request: Request,
+    body: ChatRequest,
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    conv = await get_conversation(conv_id, user.id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+
+    await add_message(conv_id, "user", body.message)
+
+    async def event_generator():
+        parts: list[str] = []
+        try:
+            async for token in _stream_agent(user.id, conv_id, body.message, conv.title):
+                parts.append(token)
+                yield f"data: {json.dumps({'type': 'token', 'text': token}, ensure_ascii=False)}\n\n"
+                if await request.is_disconnected():
+                    break
+        except Exception as e:
+            logger.exception("Stream agent error")
+            err = _friendly_error(e)
+            parts.append(err)
+            yield f"data: {json.dumps({'type': 'token', 'text': err}, ensure_ascii=False)}\n\n"
+
+        complete = "".join(parts)
+        if complete:
+            await add_message(conv_id, "assistant", complete)
+            msgs = await get_messages(conv_id)
+            if len(msgs) == 2:
+                await update_conversation_title(conv_id, body.message[:50])
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/conversations/{conv_id}/chat/image")
