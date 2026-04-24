@@ -12,7 +12,7 @@ below convert it to ``int`` before every DB call.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 def _now() -> datetime:
     return datetime.utcnow()
@@ -796,6 +796,35 @@ async def update_conversation_title(conversation_id: int, title: str) -> None:
             .values(title=title)
         )
         await session.commit()
+
+
+# ── Activity streak ───────────────────────────────────────────────────────────
+
+async def get_activity_streak(user_id: int) -> int:
+    """Consecutive days (back from today) with at least one workout log or food diary entry."""
+    async with AsyncSessionLocal() as session:
+        streak = 0
+        today = date.today()
+        for days_back in range(366):
+            check_date = today - timedelta(days=days_back)
+            has_workout = await session.scalar(
+                select(WorkoutLog.id)
+                .where(WorkoutLog.user_id == user_id, func.date(WorkoutLog.logged_at) == check_date)
+                .limit(1)
+            )
+            has_food = await session.scalar(
+                select(FoodDiary.id)
+                .where(FoodDiary.user_id == user_id, func.date(FoodDiary.logged_at) == check_date)
+                .limit(1)
+            )
+            if has_workout or has_food:
+                streak += 1
+            elif days_back == 0:
+                # No activity yet today — continue checking yesterday
+                continue
+            else:
+                break
+        return streak
 
 
 # ── Waitlist ──────────────────────────────────────────────────────────────────

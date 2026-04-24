@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
@@ -19,8 +21,11 @@ class LogWeightBody(BaseModel):
 @router.get("/summary")
 async def get_summary(user: User = Depends(get_current_user)) -> dict:
     uid = str(user.id)
-    weight_history = await db.get_weight_history(uid, days=90)
-    workout_logs = await db.get_workout_logs(uid)
+    weight_history, workout_logs, streak = await asyncio.gather(
+        db.get_weight_history(uid, days=90),
+        db.get_workout_logs(uid),
+        db.get_activity_streak(user.id),
+    )
 
     current_weight = weight_history[0]["weight"] if weight_history else user.weight
     start_weight = weight_history[-1]["weight"] if len(weight_history) > 1 else None
@@ -34,7 +39,8 @@ async def get_summary(user: User = Depends(get_current_user)) -> dict:
         "current_weight": current_weight,
         "weight_change_90d": weight_change,
         "total_workouts": len(workout_logs),
-        "weight_history": weight_history[:30],  # last 30 entries
+        "streak": streak,
+        "weight_history": weight_history[:30],
         "recent_workouts": workout_logs[:10],
         "profile": {
             "goal": user.goal,

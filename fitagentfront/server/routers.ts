@@ -472,6 +472,7 @@ export const appRouter = router({
         current_weight: number | null;
         weight_change_90d: number | null;
         total_workouts: number;
+        streak: number;
         weight_history: Array<{ weight: number; logged_at: string }>;
         recent_workouts: Array<{
           id: number;

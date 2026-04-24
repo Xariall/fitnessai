@@ -24,14 +24,57 @@ import {
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-const REGULAR_HINTS = [
-  { icon: "💪", text: "Составь план тренировки на сегодня" },
-  { icon: "🥩", text: "Что лучше съесть после тренировки?" },
-  { icon: "📊", text: "Сколько белка мне нужно в день?" },
-  { icon: "🔥", text: "Как ускорить метаболизм?" },
-  { icon: "🧘", text: "Как правильно восстанавливаться между тренировками?" },
+const QUICK_ACTIONS = [
+  { icon: "🍽️", text: "Что я ел сегодня?" },
   { icon: "⚖️", text: "Запиши мой вес" },
+  { icon: "✅", text: "Отметить тренировку как выполненную" },
+  { icon: "📋", text: "Составь план питания на сегодня" },
 ];
+
+function daysDeclension(n: number): string {
+  if (n % 10 === 1 && n % 100 !== 11) return "день";
+  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return "дня";
+  return "дней";
+}
+
+function getTimeBasedHints(streak: number): Array<{ icon: string; text: string }> {
+  const hour = new Date().getHours();
+  const streakHint =
+    streak >= 2
+      ? { icon: "🔥", text: `Ты активен ${streak} ${daysDeclension(streak)} подряд. Продолжим?` }
+      : { icon: "🌅", text: "Начни день правильно — составь план на сегодня" };
+
+  if (hour >= 5 && hour < 10) {
+    return [
+      streakHint,
+      { icon: "🥣", text: "Что съесть на завтрак?" },
+      { icon: "📊", text: "Сколько калорий мне нужно сегодня?" },
+      { icon: "💪", text: "Составь утреннюю тренировку на 20 минут" },
+    ];
+  }
+  if (hour >= 10 && hour < 15) {
+    return [
+      { icon: "🥗", text: "Что приготовить на обед?" },
+      { icon: "💪", text: "Составь план тренировки на сегодня" },
+      { icon: "📊", text: "Сколько белка мне нужно в день?" },
+      { icon: "🧘", text: "Упражнения для растяжки на 10 минут" },
+    ];
+  }
+  if (hour >= 15 && hour < 21) {
+    return [
+      { icon: "🍽️", text: "Что лучше съесть после тренировки?" },
+      { icon: "🥩", text: "Что приготовить на ужин?" },
+      { icon: "🔥", text: "Как ускорить метаболизм?" },
+      { icon: "📈", text: "Покажи мой прогресс за неделю" },
+    ];
+  }
+  return [
+    { icon: "⚖️", text: "Запиши мой вес" },
+    { icon: "😴", text: "Как улучшить сон для восстановления?" },
+    { icon: "📋", text: "Составь план на завтра" },
+    { icon: "🧘", text: "Как правильно восстанавливаться между тренировками?" },
+  ];
+}
 
 const DOCKER_STEPS = [
   {
@@ -61,6 +104,12 @@ export default function Chat() {
     retry: false,
   });
   const onboarded = profileQuery.data?.onboarding_completed ?? true;
+
+  const progressQuery = trpc.progress.getSummary.useQuery(undefined, {
+    enabled: isAuthenticated && onboarded,
+    retry: false,
+  });
+  const streak = progressQuery.data?.streak ?? 0;
 
   const [selectedConversation, setSelectedConversation] = useState<
     number | null
@@ -163,6 +212,13 @@ export default function Chat() {
       return;
     }
     await createConv.mutateAsync({});
+  };
+
+  const handleQuickAction = async (text: string) => {
+    if (!selectedConversation || isLoading || sendMsg.isPending) return;
+    setIsLoading(true);
+    await sendMsg.mutateAsync({ conversationId: selectedConversation, message: text });
+    setIsLoading(false);
   };
 
   const handleHintClick = async (text: string) => {
@@ -383,7 +439,22 @@ export default function Chat() {
             </div>
 
             {/* Input */}
-            <div className="glass border-t border-white/10 p-4">
+            <div className="glass border-t border-white/10 p-4 space-y-2.5">
+              {/* Quick Actions */}
+              <div className="flex gap-2 overflow-x-auto pb-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {QUICK_ACTIONS.map(action => (
+                  <button
+                    key={action.text}
+                    type="button"
+                    onClick={() => handleQuickAction(action.text)}
+                    disabled={isLoading || sendMsg.isPending}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.06] border border-white/10 hover:bg-white/10 hover:border-purple-500/30 text-xs text-white/50 hover:text-white transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <span>{action.icon}</span>
+                    <span>{action.text}</span>
+                  </button>
+                ))}
+              </div>
               <form onSubmit={handleSendMessage} className="flex gap-3">
                 <Input
                   type="text"
@@ -436,7 +507,7 @@ export default function Chat() {
 
             {onboarded && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
-                {REGULAR_HINTS.map(hint => (
+                {getTimeBasedHints(streak).map(hint => (
                   <button
                     key={hint.text}
                     onClick={() => handleHintClick(hint.text)}
