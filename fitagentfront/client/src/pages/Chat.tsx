@@ -83,9 +83,7 @@ function getTimeBasedHints(
 }
 
 // ── Layer 2: Navigation chips after AI mentions a plan ────────────────────────
-function getNavChips(
-  content: string
-): Array<{ label: string; href: string }> {
+function getNavChips(content: string): Array<{ label: string; href: string }> {
   const c = content.toLowerCase();
   const chips: Array<{ label: string; href: string }> = [];
   if (
@@ -279,7 +277,8 @@ export default function Chat() {
   // Layer 3a: Handle ?q= and ?conv= URL params — deep links from other pages
   useEffect(() => {
     if (qParamHandled.current) return;
-    if (!isAuthenticated || conversations.isLoading || !conversations.data) return;
+    if (!isAuthenticated || conversations.isLoading || !conversations.data)
+      return;
 
     const params = new URLSearchParams(window.location.search);
     const q = params.get("q");
