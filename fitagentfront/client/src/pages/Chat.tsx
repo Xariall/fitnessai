@@ -33,15 +33,21 @@ const QUICK_ACTIONS = [
 
 function daysDeclension(n: number): string {
   if (n % 10 === 1 && n % 100 !== 11) return "день";
-  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return "дня";
+  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100))
+    return "дня";
   return "дней";
 }
 
-function getTimeBasedHints(streak: number): Array<{ icon: string; text: string }> {
+function getTimeBasedHints(
+  streak: number
+): Array<{ icon: string; text: string }> {
   const hour = new Date().getHours();
   const streakHint =
     streak >= 2
-      ? { icon: "🔥", text: `Ты активен ${streak} ${daysDeclension(streak)} подряд. Продолжим?` }
+      ? {
+          icon: "🔥",
+          text: `Ты активен ${streak} ${daysDeclension(streak)} подряд. Продолжим?`,
+        }
       : { icon: "🌅", text: "Начни день правильно — составь план на сегодня" };
 
   if (hour >= 5 && hour < 10) {
@@ -74,6 +80,20 @@ function getTimeBasedHints(streak: number): Array<{ icon: string; text: string }
     { icon: "📋", text: "Составь план на завтра" },
     { icon: "🧘", text: "Как правильно восстанавливаться между тренировками?" },
   ];
+}
+
+// ── UC-4: Suggested replies by topic ─────────────────────────────────────────
+function getSuggestedReplies(content: string): string[] | null {
+  const c = content.toLowerCase();
+  if (c.includes("тренировк") || c.includes("упражнен") || c.includes("программ") || c.includes("подход"))
+    return ["Измени упражнение", "Добавь разминку", "Облегчи нагрузку"];
+  if (c.includes("рецепт") || c.includes("блюд") || c.includes("приготов") || c.includes("ингредиент"))
+    return ["Рассчитай КБЖУ", "Альтернатива без лактозы", "Добавить в дневник питания"];
+  if (c.includes("калори") || c.includes("белок") || c.includes("питани") || c.includes("рацион"))
+    return ["Что съесть прямо сейчас?", "Составь план питания на день", "Что я ел сегодня?"];
+  if (c.includes("вес") || c.includes("прогресс") || c.includes("результ"))
+    return ["Как ускорить прогресс?", "Скорректируй план", "Что изменить в питании?"];
+  return null;
 }
 
 const DOCKER_STEPS = [
@@ -110,6 +130,16 @@ export default function Chat() {
     retry: false,
   });
   const streak = progressQuery.data?.streak ?? 0;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayNutrition = trpc.nutrition.getPlan.useQuery(
+    { date: todayStr },
+    { enabled: isAuthenticated && onboarded, retry: false }
+  );
+  const activeWorkout = trpc.workout.getActive.useQuery(undefined, {
+    enabled: isAuthenticated && onboarded,
+    retry: false,
+  });
 
   const [selectedConversation, setSelectedConversation] = useState<
     number | null
@@ -217,7 +247,10 @@ export default function Chat() {
   const handleQuickAction = async (text: string) => {
     if (!selectedConversation || isLoading || sendMsg.isPending) return;
     setIsLoading(true);
-    await sendMsg.mutateAsync({ conversationId: selectedConversation, message: text });
+    await sendMsg.mutateAsync({
+      conversationId: selectedConversation,
+      message: text,
+    });
     setIsLoading(false);
   };
 
@@ -397,32 +430,58 @@ export default function Chat() {
                     Start a conversation with your AI trainer
                   </p>
                 </div>
-              ) : (
-                (messages.data ?? []).map(msg => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
+              ) : (() => {
+                const msgList = messages.data ?? [];
+                const lastAiIdx = msgList.reduce(
+                  (last, m, i) => (m.role === "assistant" ? i : last),
+                  -1
+                );
+                return msgList.map((msg, idx) => (
+                  <div key={msg.id}>
                     <div
-                      className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
-                        msg.role === "user"
-                          ? "bg-purple-500/30 border border-purple-500/50 text-white"
-                          : "glass text-white"
-                      }`}
+                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                     >
-                      <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <div
+                        className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
+                          msg.role === "user"
+                            ? "bg-purple-500/30 border border-purple-500/50 text-white"
+                            : "glass text-white"
+                        }`}
+                      >
+                        <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                        <p className="text-xs text-muted-sm mt-2">
+                          {new Date(msg.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-sm mt-2">
-                        {new Date(msg.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
                     </div>
+                    {/* UC-4: Suggested replies after last AI message */}
+                    {idx === lastAiIdx && !isLoading && (() => {
+                      const replies = getSuggestedReplies(msg.content);
+                      if (!replies) return null;
+                      return (
+                        <div className="flex gap-2 flex-wrap mt-2 ml-1">
+                          {replies.map(reply => (
+                            <button
+                              key={reply}
+                              type="button"
+                              onClick={() => handleQuickAction(reply)}
+                              disabled={sendMsg.isPending}
+                              className="px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-xs text-purple-300 hover:bg-purple-500/20 hover:text-white transition-all duration-200 disabled:opacity-30"
+                            >
+                              {reply}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
-                ))
-              )}
+                ));
+              })()}
 
               {isLoading && (
                 <div className="flex justify-start">
@@ -504,6 +563,53 @@ export default function Chat() {
                 </>
               )}
             </div>
+
+            {/* UC-5: Today widget */}
+            {onboarded && (activeWorkout.data || todayNutrition.data?.plan) && (
+              <div className="grid grid-cols-2 gap-3 w-full">
+                {activeWorkout.data && (
+                  <button
+                    onClick={() => handleHintClick("Какая тренировка у меня сегодня по программе?")}
+                    disabled={createConv.isPending}
+                    className="text-left p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/15 hover:border-purple-500/40 transition-all duration-200 disabled:opacity-40"
+                  >
+                    <p className="text-xs text-purple-400 font-medium mb-1">🏋️ Программа</p>
+                    <p className="text-sm text-white font-semibold truncate">{activeWorkout.data.name}</p>
+                    <p className="text-xs text-white/40 mt-0.5">
+                      {activeWorkout.data.days_per_week} дн / неделю
+                    </p>
+                  </button>
+                )}
+                {todayNutrition.data?.plan ? (
+                  <button
+                    onClick={() => handleHintClick("Сколько калорий я уже съел сегодня?")}
+                    disabled={createConv.isPending}
+                    className="text-left p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 hover:border-cyan-500/40 transition-all duration-200 disabled:opacity-40"
+                  >
+                    <p className="text-xs text-cyan-400 font-medium mb-1">🥗 Питание сегодня</p>
+                    <p className="text-sm text-white font-semibold">
+                      {Object.values(todayNutrition.data.plan.meals)
+                        .flat()
+                        .reduce((sum, item) => sum + item.calories, 0)
+                        .toFixed(0)} ккал
+                    </p>
+                    <p className="text-xs text-white/40 mt-0.5">
+                      цель: {todayNutrition.data.daily_norm?.target_calories ?? "—"} ккал
+                    </p>
+                  </button>
+                ) : activeWorkout.data ? null : (
+                  <button
+                    onClick={() => handleHintClick("Составь мне план питания на сегодня")}
+                    disabled={createConv.isPending}
+                    className="text-left p-4 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] transition-all duration-200 disabled:opacity-40"
+                  >
+                    <p className="text-xs text-white/40 font-medium mb-1">🥗 Питание</p>
+                    <p className="text-sm text-white/60">Нет плана на сегодня</p>
+                    <p className="text-xs text-purple-400 mt-0.5">Сгенерировать →</p>
+                  </button>
+                )}
+              </div>
+            )}
 
             {onboarded && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
