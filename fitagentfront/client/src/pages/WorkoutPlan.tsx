@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   ChevronLeft,
@@ -89,6 +89,7 @@ function ExerciseCard({
   onToggle: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [, navigate] = useLocation();
 
   function handleCopy() {
     const text = `${exercise.name}\n${exercise.sets} подхода × ${exercise.reps} повт.\nВес: ${exercise.weight} | Отдых: ${exercise.rest}`;
@@ -166,9 +167,22 @@ function ExerciseCard({
             />
           </div>
 
-          <p className="text-[11px] text-white/25 mt-3">
-            Упражнение {index + 1} из {total}
-          </p>
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-[11px] text-white/25">
+              Упражнение {index + 1} из {total}
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                navigate(
+                  `/chat?q=${encodeURIComponent(`Объясни технику выполнения упражнения: ${exercise.name}`)}`
+                )
+              }
+              className="text-[11px] text-purple-400/60 hover:text-purple-300 transition-colors"
+            >
+              Объясни технику →
+            </button>
+          </div>
         </div>
       </div>
     </div>

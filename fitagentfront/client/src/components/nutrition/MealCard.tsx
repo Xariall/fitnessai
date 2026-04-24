@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Trash2, Pencil, Check, X, ChevronDown, Plus } from "lucide-react";
 import type { RouterOutputs } from "@/lib/trpc";
 
@@ -47,6 +48,7 @@ function ItemRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(item.weight_g));
+  const [, navigate] = useLocation();
 
   function commitEdit() {
     const val = parseFloat(draft);
@@ -101,6 +103,17 @@ function ItemRow({
           {" · "}У{" "}
           <span className="text-emerald-300/70">{Math.round(item.carbs)}</span>
         </p>
+        <button
+          type="button"
+          onClick={() =>
+            navigate(
+              `/chat?q=${encodeURIComponent(`Чем можно заменить ${item.product_name} в моём плане питания?`)}`
+            )
+          }
+          className="text-[10px] text-purple-400/50 hover:text-purple-300 transition-colors mt-0.5"
+        >
+          Чем заменить? →
+        </button>
       </div>
 
       {/* Weight / edit */}

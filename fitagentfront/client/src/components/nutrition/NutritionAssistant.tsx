@@ -7,7 +7,9 @@ import {
   ChevronDown,
   MessageSquare,
   Trash2,
+  ExternalLink,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -34,6 +36,7 @@ interface Props {
 }
 
 export default function NutritionAssistant({ open, onClose }: Props) {
+  const [, navigate] = useLocation();
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -256,6 +259,20 @@ export default function NutritionAssistant({ open, onClose }: Props) {
                 />
               </button>
             )}
+            {/* Open in full chat */}
+            <button
+              onClick={() => {
+                onClose();
+                const url = conversationId
+                  ? `/chat?conv=${conversationId}`
+                  : "/chat";
+                navigate(url);
+              }}
+              title="Перейти в полный чат"
+              className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/40 hover:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-500/30 transition-all"
+            >
+              <ExternalLink size={13} />
+            </button>
             <button
               onClick={onClose}
               className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.09] transition-all"

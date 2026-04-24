@@ -82,17 +82,70 @@ function getTimeBasedHints(
   ];
 }
 
+// ── Layer 2: Navigation chips after AI mentions a plan ────────────────────────
+function getNavChips(
+  content: string
+): Array<{ label: string; href: string }> {
+  const c = content.toLowerCase();
+  const chips: Array<{ label: string; href: string }> = [];
+  if (
+    c.includes("план тренировок") ||
+    c.includes("тренировочный план") ||
+    c.includes("программа тренировок") ||
+    c.includes("workout plan") ||
+    c.includes("план составлен") ||
+    c.includes("план создан")
+  )
+    chips.push({ label: "🏋️ Открыть план тренировок", href: "/workout-plan" });
+  if (
+    c.includes("план питания") ||
+    c.includes("меню на") ||
+    c.includes("рацион на") ||
+    c.includes("питание на день") ||
+    c.includes("nutrition plan")
+  )
+    chips.push({ label: "🥗 Открыть план питания", href: "/nutrition" });
+  return chips;
+}
+
 // ── UC-4: Suggested replies by topic ─────────────────────────────────────────
 function getSuggestedReplies(content: string): string[] | null {
   const c = content.toLowerCase();
-  if (c.includes("тренировк") || c.includes("упражнен") || c.includes("программ") || c.includes("подход"))
+  if (
+    c.includes("тренировк") ||
+    c.includes("упражнен") ||
+    c.includes("программ") ||
+    c.includes("подход")
+  )
     return ["Измени упражнение", "Добавь разминку", "Облегчи нагрузку"];
-  if (c.includes("рецепт") || c.includes("блюд") || c.includes("приготов") || c.includes("ингредиент"))
-    return ["Рассчитай КБЖУ", "Альтернатива без лактозы", "Добавить в дневник питания"];
-  if (c.includes("калори") || c.includes("белок") || c.includes("питани") || c.includes("рацион"))
-    return ["Что съесть прямо сейчас?", "Составь план питания на день", "Что я ел сегодня?"];
+  if (
+    c.includes("рецепт") ||
+    c.includes("блюд") ||
+    c.includes("приготов") ||
+    c.includes("ингредиент")
+  )
+    return [
+      "Рассчитай КБЖУ",
+      "Альтернатива без лактозы",
+      "Добавить в дневник питания",
+    ];
+  if (
+    c.includes("калори") ||
+    c.includes("белок") ||
+    c.includes("питани") ||
+    c.includes("рацион")
+  )
+    return [
+      "Что съесть прямо сейчас?",
+      "Составь план питания на день",
+      "Что я ел сегодня?",
+    ];
   if (c.includes("вес") || c.includes("прогресс") || c.includes("результ"))
-    return ["Как ускорить прогресс?", "Скорректируй план", "Что изменить в питании?"];
+    return [
+      "Как ускорить прогресс?",
+      "Скорректируй план",
+      "Что изменить в питании?",
+    ];
   return null;
 }
 
@@ -149,6 +202,7 @@ export default function Chat() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const qParamHandled = useRef(false);
 
   const handleExit = () => navigate("/");
 
@@ -177,6 +231,10 @@ export default function Chat() {
       messages.refetch();
       conversations.refetch();
       utils.profile.get.invalidate();
+      // Layer 1: Invalidate cross-section caches so /workout-plan and /nutrition reflect new data
+      utils.workout.getActive.invalidate();
+      utils.workout.getAll.invalidate();
+      utils.nutrition.getPlan.invalidate();
     },
     onError: error => {
       toast.error(error.message || "Failed to send message");
@@ -217,6 +275,42 @@ export default function Chat() {
     if (loading) return;
     if (!isAuthenticated) navigate("/");
   }, [isAuthenticated, loading, navigate]);
+
+  // Layer 3a: Handle ?q= and ?conv= URL params — deep links from other pages
+  useEffect(() => {
+    if (qParamHandled.current) return;
+    if (!isAuthenticated || conversations.isLoading || !conversations.data) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    const convParam = params.get("conv");
+    if (!q && !convParam) return;
+
+    qParamHandled.current = true;
+    window.history.replaceState({}, "", "/chat");
+
+    if (convParam) {
+      const id = parseInt(convParam, 10);
+      if (!isNaN(id)) setSelectedConversation(id);
+    }
+
+    if (q) {
+      (async () => {
+        const emptyConv = conversations.data.find(c => c.title === "Новый чат");
+        let convId: number;
+        if (emptyConv) {
+          convId = emptyConv.id;
+          setSelectedConversation(convId);
+        } else {
+          const result = await createConv.mutateAsync({});
+          convId = (result as { conversationId: number }).conversationId;
+        }
+        setIsLoading(true);
+        await sendMsg.mutateAsync({ conversationId: convId, message: q });
+        setIsLoading(false);
+      })();
+    }
+  }, [isAuthenticated, conversations.isLoading, conversations.data]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -430,58 +524,81 @@ export default function Chat() {
                     Start a conversation with your AI trainer
                   </p>
                 </div>
-              ) : (() => {
-                const msgList = messages.data ?? [];
-                const lastAiIdx = msgList.reduce(
-                  (last, m, i) => (m.role === "assistant" ? i : last),
-                  -1
-                );
-                return msgList.map((msg, idx) => (
-                  <div key={msg.id}>
-                    <div
-                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                    >
+              ) : (
+                (() => {
+                  const msgList = messages.data ?? [];
+                  const lastAiIdx = msgList.reduce(
+                    (last, m, i) => (m.role === "assistant" ? i : last),
+                    -1
+                  );
+                  return msgList.map((msg, idx) => (
+                    <div key={msg.id}>
                       <div
-                        className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
-                          msg.role === "user"
-                            ? "bg-purple-500/30 border border-purple-500/50 text-white"
-                            : "glass text-white"
-                        }`}
+                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                       >
-                        <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        <div
+                          className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
+                            msg.role === "user"
+                              ? "bg-purple-500/30 border border-purple-500/50 text-white"
+                              : "glass text-white"
+                          }`}
+                        >
+                          <div className="text-sm leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-2">
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
+                          <p className="text-xs text-muted-sm mt-2">
+                            {new Date(msg.created_at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-sm mt-2">
-                          {new Date(msg.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
                       </div>
+                      {/* UC-4 + Layer 2: Suggested replies & navigation chips after last AI message */}
+                      {idx === lastAiIdx &&
+                        !isLoading &&
+                        (() => {
+                          const replies = getSuggestedReplies(msg.content);
+                          const navChips = getNavChips(msg.content);
+                          if (!replies && navChips.length === 0) return null;
+                          return (
+                            <>
+                              {replies && (
+                                <div className="flex gap-2 flex-wrap mt-2 ml-1">
+                                  {replies.map(reply => (
+                                    <button
+                                      key={reply}
+                                      type="button"
+                                      onClick={() => handleQuickAction(reply)}
+                                      disabled={sendMsg.isPending}
+                                      className="px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-xs text-purple-300 hover:bg-purple-500/20 hover:text-white transition-all duration-200 disabled:opacity-30"
+                                    >
+                                      {reply}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              {navChips.length > 0 && (
+                                <div className="flex gap-2 flex-wrap mt-2 ml-1">
+                                  {navChips.map(chip => (
+                                    <button
+                                      key={chip.href}
+                                      type="button"
+                                      onClick={() => navigate(chip.href)}
+                                      className="px-3 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-300 hover:bg-cyan-500/20 hover:text-white transition-all duration-200"
+                                    >
+                                      {chip.label} →
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                     </div>
-                    {/* UC-4: Suggested replies after last AI message */}
-                    {idx === lastAiIdx && !isLoading && (() => {
-                      const replies = getSuggestedReplies(msg.content);
-                      if (!replies) return null;
-                      return (
-                        <div className="flex gap-2 flex-wrap mt-2 ml-1">
-                          {replies.map(reply => (
-                            <button
-                              key={reply}
-                              type="button"
-                              onClick={() => handleQuickAction(reply)}
-                              disabled={sendMsg.isPending}
-                              className="px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-xs text-purple-300 hover:bg-purple-500/20 hover:text-white transition-all duration-200 disabled:opacity-30"
-                            >
-                              {reply}
-                            </button>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                ));
-              })()}
+                  ));
+                })()
+              )}
 
               {isLoading && (
                 <div className="flex justify-start">
@@ -569,12 +686,20 @@ export default function Chat() {
               <div className="grid grid-cols-2 gap-3 w-full">
                 {activeWorkout.data && (
                   <button
-                    onClick={() => handleHintClick("Какая тренировка у меня сегодня по программе?")}
+                    onClick={() =>
+                      handleHintClick(
+                        "Какая тренировка у меня сегодня по программе?"
+                      )
+                    }
                     disabled={createConv.isPending}
                     className="text-left p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/15 hover:border-purple-500/40 transition-all duration-200 disabled:opacity-40"
                   >
-                    <p className="text-xs text-purple-400 font-medium mb-1">🏋️ Программа</p>
-                    <p className="text-sm text-white font-semibold truncate">{activeWorkout.data.name}</p>
+                    <p className="text-xs text-purple-400 font-medium mb-1">
+                      🏋️ Программа
+                    </p>
+                    <p className="text-sm text-white font-semibold truncate">
+                      {activeWorkout.data.name}
+                    </p>
                     <p className="text-xs text-white/40 mt-0.5">
                       {activeWorkout.data.days_per_week} дн / неделю
                     </p>
@@ -582,30 +707,45 @@ export default function Chat() {
                 )}
                 {todayNutrition.data?.plan ? (
                   <button
-                    onClick={() => handleHintClick("Сколько калорий я уже съел сегодня?")}
+                    onClick={() =>
+                      handleHintClick("Сколько калорий я уже съел сегодня?")
+                    }
                     disabled={createConv.isPending}
                     className="text-left p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 hover:border-cyan-500/40 transition-all duration-200 disabled:opacity-40"
                   >
-                    <p className="text-xs text-cyan-400 font-medium mb-1">🥗 Питание сегодня</p>
+                    <p className="text-xs text-cyan-400 font-medium mb-1">
+                      🥗 Питание сегодня
+                    </p>
                     <p className="text-sm text-white font-semibold">
                       {Object.values(todayNutrition.data.plan.meals)
                         .flat()
                         .reduce((sum, item) => sum + item.calories, 0)
-                        .toFixed(0)} ккал
+                        .toFixed(0)}{" "}
+                      ккал
                     </p>
                     <p className="text-xs text-white/40 mt-0.5">
-                      цель: {todayNutrition.data.daily_norm?.target_calories ?? "—"} ккал
+                      цель:{" "}
+                      {todayNutrition.data.daily_norm?.target_calories ?? "—"}{" "}
+                      ккал
                     </p>
                   </button>
                 ) : activeWorkout.data ? null : (
                   <button
-                    onClick={() => handleHintClick("Составь мне план питания на сегодня")}
+                    onClick={() =>
+                      handleHintClick("Составь мне план питания на сегодня")
+                    }
                     disabled={createConv.isPending}
                     className="text-left p-4 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] transition-all duration-200 disabled:opacity-40"
                   >
-                    <p className="text-xs text-white/40 font-medium mb-1">🥗 Питание</p>
-                    <p className="text-sm text-white/60">Нет плана на сегодня</p>
-                    <p className="text-xs text-purple-400 mt-0.5">Сгенерировать →</p>
+                    <p className="text-xs text-white/40 font-medium mb-1">
+                      🥗 Питание
+                    </p>
+                    <p className="text-sm text-white/60">
+                      Нет плана на сегодня
+                    </p>
+                    <p className="text-xs text-purple-400 mt-0.5">
+                      Сгенерировать →
+                    </p>
                   </button>
                 )}
               </div>
