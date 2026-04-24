@@ -210,6 +210,81 @@ def calculate_bmi(weight_kg: float, height_cm: float) -> str:
     }, ensure_ascii=False)
 
 
+_ACTIVITY_MULTIPLIER = {
+    "sedentary": 1.2,
+    "light": 1.375,
+    "moderate": 1.55,
+    "active": 1.725,
+    "very_active": 1.9,
+}
+
+_GOAL_CALORIE_DELTA = {
+    "lose": -500,
+    "gain": 400,
+    "maintain": 0,
+    "recomposition": -200,
+    "endurance": 200,
+    "healthy": 0,
+    "athletic": 400,
+}
+
+
+@tool
+def calculate_kbzhu(
+    weight_kg: float,
+    height_cm: float,
+    age: int,
+    gender: str,
+    activity: str,
+    goal: str,
+) -> str:
+    """Рассчитывает суточную норму калорий и КБЖУ (белки, жиры, углеводы)
+    по формуле Миффлина-Сан Жеора с учётом уровня активности и цели.
+
+    Args:
+        weight_kg: Вес в кг
+        height_cm: Рост в см
+        age: Возраст в годах
+        gender: Пол — 'male' или 'female'
+        activity: Уровень активности — 'sedentary', 'light', 'moderate', 'active', 'very_active'
+        goal: Цель — 'lose', 'gain', 'maintain', 'recomposition', 'endurance', 'healthy', 'athletic'
+    """
+    if height_cm <= 0 or weight_kg <= 0 or age <= 0:
+        return json.dumps({"error": "Некорректные входные данные"}, ensure_ascii=False)
+
+    # Mifflin-St Jeor BMR
+    if gender == "male":
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
+    else:
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age - 161
+
+    multiplier = _ACTIVITY_MULTIPLIER.get(activity, 1.375)
+    tdee = bmr * multiplier
+    target_calories = round(tdee + _GOAL_CALORIE_DELTA.get(goal, 0))
+
+    # Macros
+    if goal in ("lose", "recomposition"):
+        protein_g = round(weight_kg * 2.0)  # higher protein to preserve muscle
+    elif goal in ("gain", "athletic"):
+        protein_g = round(weight_kg * 2.2)
+    else:
+        protein_g = round(weight_kg * 1.8)
+
+    fat_g = round(target_calories * 0.28 / 9)
+    carbs_g = round((target_calories - protein_g * 4 - fat_g * 9) / 4)
+    carbs_g = max(carbs_g, 50)  # floor
+
+    return json.dumps({
+        "target_calories": target_calories,
+        "bmr": round(bmr),
+        "tdee": round(tdee),
+        "protein_g": protein_g,
+        "fat_g": fat_g,
+        "carbs_g": carbs_g,
+        "note": f"Рассчитано по формуле Миффлина-Сан Жеора. Цель: {goal}",
+    }, ensure_ascii=False)
+
+
 _GOAL_MAP = {
     "lose": "похудение и жиросжигание",
     "gain": "набор мышечной массы",

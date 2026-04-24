@@ -13,14 +13,14 @@ from langgraph.graph import StateGraph, MessagesState, START
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.tools import analyze_food_photo, calculate_bmi, generate_workout_plan, search_knowledge
+from agent.tools import analyze_food_photo, calculate_bmi, calculate_kbzhu, generate_workout_plan, search_knowledge
 
 logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 PROJECT_ROOT = str(Path(__file__).parent.parent)
 PYTHON = sys.executable
 
-CUSTOM_TOOLS = [analyze_food_photo, calculate_bmi, generate_workout_plan, search_knowledge]
+CUSTOM_TOOLS = [analyze_food_photo, calculate_bmi, calculate_kbzhu, generate_workout_plan, search_knowledge]
 
 _graph = None
 _client = None
