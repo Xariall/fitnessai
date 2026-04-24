@@ -28,16 +28,26 @@ _memory = MemorySaver()
 
 
 def _build_mcp_config() -> dict:
+    # The MCP library's stdio_client uses get_default_environment() which only
+    # passes HOME and PATH to subprocesses. We must explicitly forward the
+    # variables that the MCP servers need (database connection, Gemini API key).
+    mcp_env = {
+        k: v
+        for k in ("DATABASE_URL", "GEMINI_API_KEY", "GEMINI_MODEL", "JWT_SECRET")
+        if (v := os.getenv(k))
+    }
     return {
         "fitness": {
             "command": PYTHON,
             "args": [os.path.join(PROJECT_ROOT, "mcp_servers", "fitness_mcp.py")],
             "transport": "stdio",
+            "env": mcp_env,
         },
         "nutrition": {
             "command": PYTHON,
             "args": [os.path.join(PROJECT_ROOT, "mcp_servers", "nutrition_mcp.py")],
             "transport": "stdio",
+            "env": mcp_env,
         },
     }
 
