@@ -29,9 +29,17 @@ def build_user_profile_context(user: "User") -> str:
         "healthy": "Оставаться здоровым",
         "athletic": "Атлетические показатели",
     }
+    activity_map = {
+        "sedentary": "Сидячий образ жизни (нет тренировок)",
+        "light": "Лёгкая активность (1-3 дня в неделю)",
+        "moderate": "Умеренная активность (3-5 дней в неделю)",
+        "active": "Высокая активность (6-7 дней в неделю)",
+        "very_active": "Очень высокая активность (спортсмен/физический труд)",
+    }
 
     gender = gender_map.get(user.gender or "", _val(user.gender))
     goal = goal_map.get(user.goal or "", _val(user.goal))
+    activity = activity_map.get(user.activity or "", _val(user.activity))
 
     height = f"{user.height} см" if user.height else "Не указан"
     weight = f"{user.weight} кг" if user.weight else "Не указан"
@@ -58,6 +66,7 @@ def build_user_profile_context(user: "User") -> str:
 Возраст: {age}
 Рост: {height} | Вес: {weight}
 Цель: {goal}
+Уровень физической активности: {activity}
 
 [ЗДОРОВЬЕ]
 Хронические заболевания: {conditions}
