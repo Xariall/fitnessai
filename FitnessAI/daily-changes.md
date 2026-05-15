@@ -17,3 +17,10 @@
   - progress.py: log_progress (с динамикой), get_progress_summary
   - motivation.py: send_motivation (LLM + профиль + прогресс)
 - Реализованы: bot/handlers/start.py (FSM онбординга), bot/main.py, llm/provider.py, db/client.py, db/models.py, config.py
+- Создана SQL-миграция: migrations/001_initial_schema.sql
+  - Таблицы: users, workouts, workout_logs, nutrition_plans, food_logs, progress_logs
+  - CHECK-ограничения на goal, activity_level, meal_type
+  - Индексы на все user_id и logged_at/measured_at
+  - Триггер auto-update updated_at для users
+  - RLS включён на всех таблицах, доступ через service_role key
+- config.py: добавлен SUPABASE_SERVICE_KEY; db/client.py переключён на service_role

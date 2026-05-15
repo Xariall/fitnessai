@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     telegram_bot_token: str
 
     supabase_url: str
-    supabase_key: str
+    supabase_key: str          # anon key (публичный, для клиентского SDK при необходимости)
+    supabase_service_key: str  # service_role key (только бэкенд, никогда не светить)
 
     llm_provider: str = "ollama"  # ollama | gemini
 
