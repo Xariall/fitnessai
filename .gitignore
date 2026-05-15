@@ -1,0 +1,31 @@
+cat > .gitignore << 'EOF'
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Env
+.env
+*.env
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Claude
+.claude/
+!.claude/settings.json
+EOF
+CLAUDE.md
+
+# Obsidian
+FitnessAI/.obsidian/workspace.json
+FitnessAI/.obsidian/workspace-mobile.json
+FitnessAI/.obsidian/cache
