@@ -9,3 +9,11 @@
 ## 2026-05-15
 - Инициализирована база знаний проекта FitnessAI
 - Созданы файлы: README.md, context.md, database.md, tools.md, structure.md
+- Создан каркас проекта: все папки и базовые файлы по structure.md
+- Реализованы все 13 инструментов агента (agent/tools/):
+  - profile.py: get_user_profile, update_user_profile
+  - workouts.py: generate_workout_plan (LLM), log_workout, get_workout_history, find_exercises (встроенная база)
+  - nutrition.py: calculate_daily_calories (формула Миффлина), generate_nutrition_plan (LLM), log_food, get_daily_nutrition_summary, get_food_info (LLM)
+  - progress.py: log_progress (с динамикой), get_progress_summary
+  - motivation.py: send_motivation (LLM + профиль + прогресс)
+- Реализованы: bot/handlers/start.py (FSM онбординга), bot/main.py, llm/provider.py, db/client.py, db/models.py, config.py
