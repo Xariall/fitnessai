@@ -1,4 +1,6 @@
 import logging
+from functools import lru_cache
+
 from langchain_core.language_models import BaseChatModel
 
 from config import settings
@@ -6,8 +8,9 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=1)
 def get_llm() -> BaseChatModel:
-    """Фабрика LLM. Возвращает модель в зависимости от LLM_PROVIDER."""
+    """Фабрика LLM (singleton). Возвращает модель в зависимости от LLM_PROVIDER."""
     if settings.llm_provider == "ollama":
         from langchain_ollama import ChatOllama
 

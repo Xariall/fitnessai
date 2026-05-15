@@ -24,3 +24,9 @@
   - Триггер auto-update updated_at для users
   - RLS включён на всех таблицах, доступ через service_role key
 - config.py: добавлен SUPABASE_SERVICE_KEY; db/client.py переключён на service_role
+- Исправлены баги перед первым запуском:
+  - .gitignore: перезаписан (был сломан heredoc-синтаксом)
+  - llm/provider.py: get_llm() обёрнут в @lru_cache — singleton, не пересоздаётся на каждый вызов
+  - agent/graph.py: _should_continue теперь ведёт в "responder" вместо END — узел responder больше не мёртвый код
+  - agent/graph.py: add_conditional_edges с явным mapping {"tool_executor": ..., "responder": ...}
+- Добавлен check_env.py — скрипт проверки зависимостей и .env перед запуском

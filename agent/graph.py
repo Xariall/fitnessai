@@ -44,11 +44,14 @@ TOOLS = [
 
 
 def _should_continue(state: AgentState) -> str:
-    """Переход: если последнее сообщение содержит tool_calls — идём в tool_executor, иначе — конец."""
+    """Переход после planner:
+    - есть tool_calls → tool_executor (выполнить инструменты, вернуться в planner)
+    - нет tool_calls  → responder (сформировать финальный ответ)
+    """
     last_message = state["messages"][-1]
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "tool_executor"
-    return END
+    return "responder"
 
 
 def build_graph() -> StateGraph:
@@ -61,7 +64,11 @@ def build_graph() -> StateGraph:
 
     graph.set_entry_point("load_profile")
     graph.add_edge("load_profile", "planner")
-    graph.add_conditional_edges("planner", _should_continue)
+    graph.add_conditional_edges(
+        "planner",
+        _should_continue,
+        {"tool_executor": "tool_executor", "responder": "responder"},
+    )
     graph.add_edge("tool_executor", "planner")
     graph.add_edge("responder", END)
 
