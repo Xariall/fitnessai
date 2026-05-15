@@ -1,0 +1,9 @@
+aiogram==3.10.0
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-ollama>=0.2.0
+langchain-google-genai>=2.0.0
+supabase>=2.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
