@@ -95,14 +95,29 @@ async def generate_nutrition_plan(
     norms = await calculate_daily_calories.ainvoke({"telegram_user_id": telegram_user_id})
 
     llm = get_llm()
-    pref_text = f"Предпочтения: {preferences}." if preferences else ""
+    pref_text = f"Предпочтения / ограничения: {preferences}." if preferences else ""
+    json_schema = (
+        '{"meals": ['
+        '{"type": "breakfast", "label": "Завтрак", '
+        '"items": [{"name": "...", "calories": int, "protein": float, "fat": float, "carbs": float}], '
+        '"total_calories": int}], '
+        '"daily_total": {"calories": int, "protein": float, "fat": float, "carbs": float}, '
+        '"norms": {"calories": int, "protein_g": float, "fat_g": float, "carbs_g": float}}'
+    )
     prompt = (
         f"Составь план питания на день.\n"
         f"Профиль: вес {profile.get('weight_kg')} кг, цель: {profile.get('goal')}.\n"
-        f"Норма: {norms.get('calories')} ккал, белки {norms.get('protein_g')} г, "
-        f"жиры {norms.get('fat_g')} г, углеводы {norms.get('carbs_g')} г. {pref_text}\n\n"
-        f"Верни JSON-объект вида:\n"
-        f'{{"meals": [{{"type": "breakfast", "name": "...", "calories": 400, "protein": 20, "fat": 10, "carbs": 50}}]}}'
+        f"Норма: {norms.get('calories')} ккал | "
+        f"Б {norms.get('protein_g')}г | Ж {norms.get('fat_g')}г | У {norms.get('carbs_g')}г.\n"
+        f"{pref_text}\n\n"
+        f"ВАЖНО:\n"
+        f"- Вес блюда указывай в граммах ГОТОВОГО (не сухого) продукта\n"
+        f"- Используй реалистичные КБЖУ. Справка: варёная овсянка 100г=88 ккал, "
+        f"варёная гречка 100г=110 ккал, куриная грудка 100г=165 ккал, "
+        f"яйцо 1шт=75 ккал, банан 100г=89 ккал, творог 5% 100г=121 ккал\n"
+        f"- Каждый приём пищи: 1-3 конкретных блюда с весом\n"
+        f"- Приёмы: breakfast/lunch/dinner и опционально snack\n\n"
+        f"Верни ТОЛЬКО JSON без пояснений и markdown:\n{json_schema}"
     )
     response = await llm.ainvoke(prompt)
 
@@ -111,6 +126,10 @@ async def generate_nutrition_plan(
         plan = json.loads(match.group()) if match else {"meals": []}
     except json.JSONDecodeError:
         plan = {"meals": []}
+
+    # Добавляем нормы в план если модель их не вернула
+    if "norms" not in plan:
+        plan["norms"] = norms
 
     user_id = await _get_user_id(telegram_user_id)
     if user_id:
