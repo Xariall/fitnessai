@@ -4,7 +4,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from bot.handlers import callbacks, chat, start
+from bot.handlers import callbacks, chat, clear, start
 from bot.middlewares.user import UserMiddleware
 from config import settings
 
@@ -22,8 +22,9 @@ async def main() -> None:
     # Middlewares
     dp.message.middleware(UserMiddleware())
 
-    # Routers (порядок важен: start перед chat)
+    # Routers (порядок важен: команды до общего chat)
     dp.include_router(start.router)
+    dp.include_router(clear.router)
     dp.include_router(callbacks.router)
     dp.include_router(chat.router)
 
