@@ -31,7 +31,10 @@ async def planner(state: AgentState, tools: list) -> AgentState:
     llm_with_tools = llm.bind_tools(tools)
 
     system_message = SystemMessage(
-        content=SYSTEM_PROMPT.format(user_profile=state["user_profile"])
+        content=SYSTEM_PROMPT.format(
+            user_profile=state["user_profile"],
+            telegram_user_id=state["telegram_user_id"],
+        )
     )
     messages = [system_message] + state["messages"]
     response = await llm_with_tools.ainvoke(messages)
