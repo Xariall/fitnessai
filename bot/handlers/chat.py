@@ -139,10 +139,15 @@ async def _run_agent_streaming(message: Message, telegram_user_id: int, user_inp
                     last_edit_time = now
                     last_edit_len = len(accumulated)
 
-    except Exception:
-        logger.exception("Streaming error for user %s", telegram_user_id)
+    except Exception as exc:
+        err_str = str(exc)
+        if "429" in err_str or "ResourceExhausted" in type(exc).__name__ or "quota" in err_str.lower():
+            user_msg = "⚠️ Слишком много запросов — подожди минуту и попробуй снова."
+        else:
+            logger.exception("Streaming error for user %s", telegram_user_id)
+            user_msg = "Что-то пошло не так. Попробуй снова через секунду."
         try:
-            await placeholder.edit_text("Произошла ошибка при обработке запроса. Попробуй ещё раз.")
+            await placeholder.edit_text(user_msg)
         except Exception:
             pass
         return
