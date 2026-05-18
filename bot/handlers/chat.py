@@ -58,13 +58,17 @@ async def _safe_edit(msg: Message, text: str, parse_mode: str | None = None) -> 
 
 
 async def _run_agent_streaming(message: Message, telegram_user_id: int, user_input: str) -> None:
-    """Запускает агента со стримингом: показывает ответ по мере генерации."""
+    """Запускает агента: показывает статус инструментов, финальный ответ — стримингом."""
     placeholder = await message.answer("⏳ _Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
     typing_task = asyncio.create_task(_keep_typing(message.bot, message.chat.id))
 
+    # pending — буфер текущего вызова планировщика (сбрасывается если вызван инструмент)
+    pending = ""
     accumulated = ""
     last_edit_time = 0.0
     last_edit_len = 0
+    # Флаг: текущий вызов планировщика является финальным (инструменты не вызывались)
+    is_final_planner = True
 
     try:
         async for event in agent_graph.astream_events(
@@ -79,20 +83,27 @@ async def _run_agent_streaming(message: Message, telegram_user_id: int, user_inp
             kind = event["event"]
             node = event.get("metadata", {}).get("langgraph_node", "")
 
-            if kind == "on_tool_start":
+            if kind == "on_chat_model_start" and node == "planner":
+                # Новый вызов планировщика — сбрасываем буфер
+                pending = ""
+                is_final_planner = True
+
+            elif kind == "on_tool_start":
+                # Планировщик решил вызвать инструмент — этот вызов НЕ финальный
+                is_final_planner = False
+                pending = ""
+                accumulated = ""
+                last_edit_len = 0
                 tool_name = event.get("name", "")
                 status = _TOOL_STATUS.get(tool_name, "⏳ Работаю с данными...")
                 await _safe_edit(placeholder, f"_{status}_", parse_mode=ParseMode.MARKDOWN)
-                accumulated = ""
-                last_edit_len = 0
 
-            elif kind == "on_chat_model_stream" and node == "planner":
+            elif kind == "on_chat_model_stream" and node == "planner" and is_final_planner:
                 chunk = event["data"].get("chunk")
-                if not chunk:
-                    continue
-
-                # Пропускаем chunks с tool_calls (не текстовый ответ)
-                if getattr(chunk, "tool_call_chunks", None):
+                if not chunk or getattr(chunk, "tool_call_chunks", None):
+                    # tool_call chunk — значит это НЕ финальный ответ, сбрасываем
+                    is_final_planner = False
+                    pending = ""
                     continue
 
                 content = chunk.content
@@ -110,7 +121,8 @@ async def _run_agent_streaming(message: Message, telegram_user_id: int, user_inp
                 if not text_part:
                     continue
 
-                accumulated += text_part
+                pending += text_part
+                accumulated = pending
                 now = time.monotonic()
                 new_chars = len(accumulated) - last_edit_len
 
@@ -178,8 +190,8 @@ def _build_input_with_context(message: Message, user_text: str) -> str:
         quoted = quoted[:800] + "..."
 
     return (
-        f"[Пользователь отвечает на твоё сообщение:\n«{quoted}»]\n\n"
-        f"{user_text}"
+        f"Контекст (моё предыдущее сообщение):\n{quoted}\n\n"
+        f"Запрос пользователя: {user_text}"
     )
 
 
