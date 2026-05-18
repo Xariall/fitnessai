@@ -10,6 +10,12 @@ from aiogram.types import Message
 from langchain_core.messages import HumanMessage
 
 from agent.graph import agent_graph
+from bot.keyboards.main import (
+    main_menu_keyboard,
+    nutrition_submenu_keyboard,
+    progress_submenu_keyboard,
+    workout_submenu_keyboard,
+)
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -193,6 +199,42 @@ def _build_input_with_context(message: Message, user_text: str) -> str:
         f"Контекст (моё предыдущее сообщение):\n{quoted}\n\n"
         f"Запрос пользователя: {user_text}"
     )
+
+
+_MAIN_MENU_SUBMENUS = {
+    "🏋️ Тренировка": ("🏋️ *Тренировки*", workout_submenu_keyboard),
+    "🥗 Питание": ("🥗 *Питание*", nutrition_submenu_keyboard),
+    "📊 Прогресс": ("📊 *Прогресс*", progress_submenu_keyboard),
+}
+
+
+@router.message(F.text.in_(_MAIN_MENU_SUBMENUS.keys()))
+async def handle_main_menu_section(message: Message, is_registered: bool = False) -> None:
+    """Кнопки главного меню открывают соответствующие submenus."""
+    if not is_registered:
+        await message.answer("Пожалуйста, начни с команды /start для регистрации.")
+        return
+    text, kb_func = _MAIN_MENU_SUBMENUS[message.text]
+    await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
+
+
+@router.message(F.text == "👤 Профиль")
+async def handle_main_menu_profile(message: Message, is_registered: bool = False) -> None:
+    """Кнопка Профиль из главного меню."""
+    if not is_registered:
+        await message.answer("Пожалуйста, начни с команды /start для регистрации.")
+        return
+    from bot.handlers.commands import _show_profile
+    await _show_profile(message)
+
+
+@router.message(F.text == "💪 Мотивация")
+async def handle_main_menu_motivation(message: Message, is_registered: bool = False) -> None:
+    """Кнопка Мотивация из главного меню."""
+    if not is_registered:
+        await message.answer("Пожалуйста, начни с команды /start для регистрации.")
+        return
+    await _run_agent_streaming(message, message.from_user.id, "Мотивируй меня")
 
 
 @router.message(F.voice)

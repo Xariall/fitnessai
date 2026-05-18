@@ -17,9 +17,12 @@ logger = logging.getLogger(__name__)
 
 _BOT_COMMANDS = [
     BotCommand(command="start", description="Начать / Главное меню"),
-    BotCommand(command="help", description="Помощь и возможности бота"),
+    BotCommand(command="plan", description="План тренировки на сегодня"),
+    BotCommand(command="nutrition", description="План питания на день"),
+    BotCommand(command="today", description="Итог питания за сегодня"),
+    BotCommand(command="progress", description="Динамика веса"),
     BotCommand(command="profile", description="Мой профиль"),
-    BotCommand(command="menu", description="Показать меню"),
+    BotCommand(command="menu", description="Главное меню"),
     BotCommand(command="clear", description="Сбросить историю диалога"),
 ]
 
