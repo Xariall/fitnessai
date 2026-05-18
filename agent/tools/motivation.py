@@ -56,5 +56,9 @@ async def send_motivation(telegram_user_id: int) -> str:
         f"Цель: {goal}. {progress_text}\n"
         f"Будь вдохновляющим, конкретным, без шаблонных фраз. Отвечай на русском."
     )
-    response = await llm.ainvoke(prompt)
-    return response.content
+    try:
+        response = await llm.ainvoke(prompt)
+        return response.content or "Ты молодец — продолжай в том же духе! 💪"
+    except Exception:
+        logger.exception("LLM call failed in send_motivation for user %s", telegram_user_id)
+        return "Ты уже сделал шаг вперёд, придя сюда. Продолжай — у тебя всё получится! 💪"

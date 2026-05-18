@@ -119,12 +119,20 @@ async def generate_nutrition_plan(
         f"- Приёмы: breakfast/lunch/dinner и опционально snack\n\n"
         f"Верни ТОЛЬКО JSON без пояснений и markdown:\n{json_schema}"
     )
-    response = await llm.ainvoke(prompt)
+    try:
+        response = await llm.ainvoke(prompt)
+        raw = response.content or ""
+    except Exception:
+        logger.exception("LLM call failed in generate_nutrition_plan for user %s", telegram_user_id)
+        return {"error": "Не удалось сгенерировать план питания — ошибка LLM.", "norms": norms}
 
-    match = re.search(r"\{.*\}", response.content, re.DOTALL)
+    # Убираем markdown-фенсы если модель их добавила
+    raw = re.sub(r"```(?:json)?", "", raw).strip()
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
     try:
         plan = json.loads(match.group()) if match else {"meals": []}
     except json.JSONDecodeError:
+        logger.warning("JSON parse failed in generate_nutrition_plan, raw=%r", raw[:200])
         plan = {"meals": []}
 
     # Добавляем нормы в план если модель их не вернула
@@ -133,16 +141,19 @@ async def generate_nutrition_plan(
 
     user_id = await _get_user_id(telegram_user_id)
     if user_id:
-        await client.table("nutrition_plans").insert(
-            {
-                "user_id": user_id,
-                "target_calories": norms.get("calories", 0),
-                "target_protein": norms.get("protein_g", 0),
-                "target_fat": norms.get("fat_g", 0),
-                "target_carbs": norms.get("carbs_g", 0),
-                "plan": plan,
-            }
-        ).execute()
+        try:
+            await client.table("nutrition_plans").insert(
+                {
+                    "user_id": user_id,
+                    "target_calories": norms.get("calories", 0),
+                    "target_protein": norms.get("protein_g", 0),
+                    "target_fat": norms.get("fat_g", 0),
+                    "target_carbs": norms.get("carbs_g", 0),
+                    "plan": plan,
+                }
+            ).execute()
+        except Exception:
+            logger.exception("Failed to save nutrition_plan to DB for user %s", telegram_user_id)
 
     return plan
 
@@ -244,11 +255,18 @@ async def get_food_info(food_name: str, weight_grams: Optional[int] = None) -> d
         f"Верни JSON: {{\"calories\": int, \"protein\": float, \"fat\": float, \"carbs\": float}}\n"
         f"Только JSON, без пояснений."
     )
-    response = await llm.ainvoke(prompt)
-    match = re.search(r"\{.*?\}", response.content, re.DOTALL)
+    try:
+        response = await llm.ainvoke(prompt)
+        raw = re.sub(r"```(?:json)?", "", response.content or "").strip()
+    except Exception:
+        logger.exception("LLM call failed in get_food_info for %s", food_name)
+        return {"food_name": food_name, "weight_grams": grams, "error": "Не удалось получить данные"}
+
+    match = re.search(r"\{.*?\}", raw, re.DOTALL)
     try:
         data = json.loads(match.group()) if match else {}
     except json.JSONDecodeError:
+        logger.warning("JSON parse failed in get_food_info for %s, raw=%r", food_name, raw[:100])
         data = {}
 
     return {**data, "food_name": food_name, "weight_grams": grams}

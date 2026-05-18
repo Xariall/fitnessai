@@ -74,24 +74,33 @@ async def generate_workout_plan(
         f"Верни JSON-объект вида:\n"
         f'{{"title": "...", "exercises": [{{"name": "...", "sets": 3, "reps": "10-12", "rest_seconds": 60}}]}}'
     )
-    response = await llm.ainvoke(prompt)
-
     import json, re
-    raw = response.content
+
+    try:
+        response = await llm.ainvoke(prompt)
+        raw = re.sub(r"```(?:json)?", "", response.content or "").strip()
+    except Exception:
+        logger.exception("LLM call failed in generate_workout_plan for user %s", telegram_user_id)
+        return {"title": f"Тренировка: {focus}", "exercises": [], "error": "Ошибка генерации плана"}
+
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     try:
         plan = json.loads(match.group()) if match else {"title": f"Тренировка: {focus}", "exercises": []}
     except json.JSONDecodeError:
+        logger.warning("JSON parse failed in generate_workout_plan, raw=%r", raw[:200])
         plan = {"title": f"Тренировка: {focus}", "exercises": []}
 
     user_id = await _get_user_id(telegram_user_id)
     if user_id:
-        saved = (
-            await client.table("workouts")
-            .insert({"user_id": user_id, "title": plan.get("title", focus), "plan": plan})
-            .execute()
-        )
-        plan["id"] = saved.data[0]["id"] if saved.data else None
+        try:
+            saved = (
+                await client.table("workouts")
+                .insert({"user_id": user_id, "title": plan.get("title", focus), "plan": plan})
+                .execute()
+            )
+            plan["id"] = saved.data[0]["id"] if saved.data else None
+        except Exception:
+            logger.exception("Failed to save workout to DB for user %s", telegram_user_id)
 
     return plan
 
