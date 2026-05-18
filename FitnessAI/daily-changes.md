@@ -40,6 +40,28 @@
 - pytest.ini добавлен; pytest + pytest-asyncio + pytest-cov добавлены в requirements.txt
 
 ## 2026-05-18
-- agent/graph.py: добавлен MemorySaver checkpointer — агент теперь помнит историю диалога в рамках сессии (по thread_id = telegram_user_id)
-- bot/handlers/chat.py: добавлен try/except — при ошибке LLM/DB пользователь получает сообщение вместо необработанного исключения
-- bot/handlers/start.py: добавлен try/except вокруг INSERT в users — при сбое БД FSM откатывается и пользователь получает понятное сообщение
+
+### Память диалога и обработка ошибок
+- agent/graph.py: добавлен MemorySaver checkpointer — агент помнит историю диалога в рамках сессии (по thread_id = telegram_user_id)
+- agent/state.py: messages переведён на `Annotated[list[BaseMessage], add_messages]` — сообщения накапливаются, а не заменяются
+- bot/handlers/chat.py: try/except + parse_mode=MARKDOWN с fallback на plain text
+- bot/handlers/start.py: try/except вокруг INSERT в users
+
+### Команда /clear
+- bot/handlers/clear.py: удаляет последние 100 сообщений в Telegram-чате через asyncio.gather + TelegramBadRequest per-message fallback
+
+### Фикс Supabase URL
+- config.py: field_validator strip_rest_v1 — обрезает /rest/v1/ из SUPABASE_URL если пользователь вставил полный путь
+
+### Системный промпт v2 (agent/prompts/system.py)
+- Явное указание telegram_user_id = {telegram_user_id} для всех tool calls
+- Точные сценарии с шагами для каждого use case
+- Правила Telegram Markdown форматирования с примерами
+- Запрет предлагать /log_food — пользователь пишет текстом
+
+### Улучшение плана питания
+- generate_nutrition_plan: новый LLM-промпт с реалистичными КБЖУ-якорями (варёная овсянка 100г=88 ккал и др.), новая JSON-схема с items+macros per meal, norms в ответе
+- system.py: пример плана с Б/Ж/У per meal и сравнением с нормой
+
+### Улучшение записи еды
+- system.py: правило "СРАЗУ вызывай инструменты без уточнений", food_name всегда с граммовкой, стандартные порции (яйцо=55г), запрет показывать "план питания" при записи еды

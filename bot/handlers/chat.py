@@ -1,45 +1,199 @@
+import asyncio
 import logging
+import time
+from io import BytesIO
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 from langchain_core.messages import HumanMessage
 
 from agent.graph import agent_graph
+from config import settings
 
 logger = logging.getLogger(__name__)
 router = Router()
 
+# Редактируем placeholder не чаще раза в N секунд (лимит Telegram ~1 edit/s)
+_EDIT_INTERVAL = 0.7
+# Минимальный прирост символов для редактирования
+_EDIT_THRESHOLD = 20
 
-@router.message()
-async def handle_message(message: Message, is_registered: bool = False) -> None:
-    """Основной обработчик — передаёт сообщение агенту."""
-    if not is_registered:
-        await message.answer("Пожалуйста, начни с команды /start для регистрации.")
-        return
+_TOOL_STATUS: dict[str, str] = {
+    "log_food": "🍽 Записываю еду...",
+    "get_food_info": "🔍 Ищу информацию о продукте...",
+    "get_daily_nutrition_summary": "📊 Загружаю дневник питания...",
+    "generate_nutrition_plan": "🥗 Создаю план питания...",
+    "calculate_daily_calories": "🔥 Считаю калории...",
+    "generate_workout_plan": "💪 Создаю план тренировки...",
+    "log_workout": "✅ Записываю тренировку...",
+    "get_workout_history": "📋 Загружаю историю тренировок...",
+    "find_exercises": "🔍 Ищу упражнения...",
+    "log_progress": "⚖️ Сохраняю прогресс...",
+    "get_progress_summary": "📈 Загружаю статистику...",
+    "get_user_profile": "👤 Загружаю профиль...",
+    "update_user_profile": "✏️ Обновляю профиль...",
+    "send_motivation": "💫 Готовлю мотивацию...",
+}
 
-    telegram_user_id = message.from_user.id
-    user_input = message.text or ""
 
-    await message.bot.send_chat_action(message.chat.id, "typing")
+async def _keep_typing(bot, chat_id: int) -> None:
+    """Периодически обновляет typing-индикатор (Telegram сбрасывает через 5 сек)."""
+    try:
+        while True:
+            await bot.send_chat_action(chat_id, "typing")
+            await asyncio.sleep(4)
+    except asyncio.CancelledError:
+        pass
+
+
+async def _safe_edit(msg: Message, text: str, parse_mode: str | None = None) -> None:
+    try:
+        await msg.edit_text(text, parse_mode=parse_mode)
+    except TelegramBadRequest:
+        pass
+    except Exception:
+        pass
+
+
+async def _run_agent_streaming(message: Message, telegram_user_id: int, user_input: str) -> None:
+    """Запускает агента со стримингом: показывает ответ по мере генерации."""
+    placeholder = await message.answer("⏳ _Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
+    typing_task = asyncio.create_task(_keep_typing(message.bot, message.chat.id))
+
+    accumulated = ""
+    last_edit_time = 0.0
+    last_edit_len = 0
 
     try:
-        result = await agent_graph.ainvoke(
+        async for event in agent_graph.astream_events(
             {
                 "messages": [HumanMessage(content=user_input)],
                 "user_profile": {},
                 "telegram_user_id": telegram_user_id,
             },
             config={"configurable": {"thread_id": str(telegram_user_id)}},
-        )
-        reply = result["messages"][-1].content
-    except Exception:
-        logger.exception("Agent error for user %s", telegram_user_id)
-        reply = "Произошла ошибка при обработке запроса. Попробуй ещё раз."
+            version="v2",
+        ):
+            kind = event["event"]
+            node = event.get("metadata", {}).get("langgraph_node", "")
 
-    # Пробуем отправить с Markdown, при ошибке парсинга — plain text
+            if kind == "on_tool_start":
+                tool_name = event.get("name", "")
+                status = _TOOL_STATUS.get(tool_name, "⏳ Работаю с данными...")
+                await _safe_edit(placeholder, f"_{status}_", parse_mode=ParseMode.MARKDOWN)
+                accumulated = ""
+                last_edit_len = 0
+
+            elif kind == "on_chat_model_stream" and node == "planner":
+                chunk = event["data"].get("chunk")
+                if not chunk:
+                    continue
+
+                # Пропускаем chunks с tool_calls (не текстовый ответ)
+                if getattr(chunk, "tool_call_chunks", None):
+                    continue
+
+                content = chunk.content
+                if isinstance(content, str):
+                    text_part = content
+                elif isinstance(content, list):
+                    text_part = "".join(
+                        p if isinstance(p, str) else p.get("text", "")
+                        for p in content
+                        if isinstance(p, (str, dict))
+                    )
+                else:
+                    continue
+
+                if not text_part:
+                    continue
+
+                accumulated += text_part
+                now = time.monotonic()
+                new_chars = len(accumulated) - last_edit_len
+
+                if new_chars >= _EDIT_THRESHOLD and now - last_edit_time >= _EDIT_INTERVAL:
+                    await _safe_edit(
+                        placeholder, accumulated + " ▌", parse_mode=ParseMode.MARKDOWN
+                    )
+                    last_edit_time = now
+                    last_edit_len = len(accumulated)
+
+    except Exception:
+        logger.exception("Streaming error for user %s", telegram_user_id)
+        try:
+            await placeholder.edit_text("Произошла ошибка при обработке запроса. Попробуй ещё раз.")
+        except Exception:
+            pass
+        return
+    finally:
+        typing_task.cancel()
+
+    if not accumulated:
+        await _safe_edit(placeholder, "Не удалось получить ответ. Попробуй ещё раз.")
+        return
+
     try:
-        await message.answer(reply, parse_mode=ParseMode.MARKDOWN)
+        await placeholder.edit_text(accumulated, parse_mode=ParseMode.MARKDOWN)
     except TelegramBadRequest:
-        await message.answer(reply)
+        await placeholder.edit_text(accumulated)
+
+
+async def _transcribe_voice(audio_bytes: bytes) -> str:
+    """Транскрибирует голосовое сообщение через Gemini."""
+    import google.generativeai as genai
+
+    genai.configure(api_key=settings.gemini_api_key)
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    audio_part = {"mime_type": "audio/ogg", "data": audio_bytes}
+    response = await asyncio.to_thread(
+        model.generate_content,
+        [
+            "Транскрибируй это голосовое сообщение точно, как есть. "
+            "Верни только текст без каких-либо комментариев.",
+            audio_part,
+        ],
+    )
+    return response.text.strip()
+
+
+@router.message(F.voice)
+async def handle_voice(message: Message, is_registered: bool = False) -> None:
+    """Обработчик голосовых сообщений."""
+    if not is_registered:
+        await message.answer("Пожалуйста, начни с команды /start для регистрации.")
+        return
+
+    if settings.llm_provider != "gemini":
+        await message.answer("🎙 Голосовой ввод доступен только в режиме Gemini.")
+        return
+
+    status_msg = await message.answer("🎙 _Распознаю речь..._", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        file = await message.bot.get_file(message.voice.file_id)
+        bio = BytesIO()
+        await message.bot.download_file(file.file_path, destination=bio)
+        transcription = await _transcribe_voice(bio.getvalue())
+    except Exception:
+        logger.exception("Voice transcription error for user %s", message.from_user.id)
+        await status_msg.edit_text("Не удалось распознать голосовое сообщение. Попробуй ещё раз.")
+        return
+
+    await status_msg.edit_text(
+        f"🎙 _Распознал:_ «{transcription}»", parse_mode=ParseMode.MARKDOWN
+    )
+    await _run_agent_streaming(message, message.from_user.id, transcription)
+
+
+@router.message()
+async def handle_message(message: Message, is_registered: bool = False) -> None:
+    """Основной обработчик текстовых сообщений."""
+    if not is_registered:
+        await message.answer("Пожалуйста, начни с команды /start для регистрации.")
+        return
+
+    user_input = message.text or ""
+    await _run_agent_streaming(message, message.from_user.id, user_input)

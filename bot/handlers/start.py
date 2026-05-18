@@ -1,16 +1,30 @@
 import logging
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
-from bot.keyboards.main import main_menu_keyboard
+from bot.keyboards.main import activity_keyboard, goal_keyboard, main_menu_keyboard
 from db.client import get_client
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+GOAL_LABELS = {
+    "lose_weight": "🔥 Похудеть",
+    "gain_muscle": "💪 Набрать массу",
+    "maintain": "⚖️ Поддерживать форму",
+}
+
+ACTIVITY_LABELS = {
+    "sedentary": "🛋 Сидячий образ жизни",
+    "light": "🚶 Лёгкая активность",
+    "moderate": "🏃 Умеренная активность",
+    "active": "💪 Высокая активность",
+    "very_active": "🔥 Очень высокая активность",
+}
 
 
 class OnboardingFSM(StatesGroup):
@@ -32,7 +46,7 @@ async def cmd_start(message: Message, state: FSMContext, is_registered: bool = F
         return
 
     await message.answer(
-        "Привет! Я твой персональный фитнес-коуч FitnessAI 🏋️\n\n"
+        "Привет! Я твой персональный фитнес-коуч *FitnessAI* 🏋️\n\n"
         "Давай познакомимся. Как тебя зовут?"
     )
     await state.set_state(OnboardingFSM.name)
@@ -75,52 +89,37 @@ async def onboarding_height(message: Message, state: FSMContext) -> None:
         await message.answer("Пожалуйста, введи рост числом, например: 175")
         return
     await state.update_data(height_cm=height)
-    await message.answer(
-        "Какова твоя цель?\n\n"
-        "1 — Похудеть\n"
-        "2 — Набрать мышечную массу\n"
-        "3 — Поддерживать форму"
-    )
+    await message.answer("Какова твоя цель?", reply_markup=goal_keyboard())
     await state.set_state(OnboardingFSM.goal)
 
 
-GOAL_MAP = {"1": "lose_weight", "2": "gain_muscle", "3": "maintain"}
-
-
 @router.message(OnboardingFSM.goal)
-async def onboarding_goal(message: Message, state: FSMContext) -> None:
-    goal = GOAL_MAP.get(message.text or "")
-    if not goal:
-        await message.answer("Введи 1, 2 или 3.")
-        return
+async def onboarding_goal_text_fallback(message: Message) -> None:
+    """Подсказка если пользователь пишет текст вместо нажатия кнопки."""
+    await message.answer("Выбери цель, нажав на одну из кнопок выше 👆")
+
+
+@router.callback_query(OnboardingFSM.goal, F.data.startswith("goal:"))
+async def onboarding_goal_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    goal = callback.data.split(":")[1]
+    label = GOAL_LABELS.get(goal, goal)
     await state.update_data(goal=goal)
-    await message.answer(
-        "Уровень активности?\n\n"
-        "1 — Сидячий образ жизни\n"
-        "2 — Лёгкая активность\n"
-        "3 — Умеренная активность\n"
-        "4 — Высокая активность\n"
-        "5 — Очень высокая активность"
-    )
+    await callback.message.edit_text(f"Цель: {label} ✅")
+    await callback.message.answer("Уровень активности?", reply_markup=activity_keyboard())
     await state.set_state(OnboardingFSM.activity_level)
-
-
-ACTIVITY_MAP = {
-    "1": "sedentary",
-    "2": "light",
-    "3": "moderate",
-    "4": "active",
-    "5": "very_active",
-}
+    await callback.answer()
 
 
 @router.message(OnboardingFSM.activity_level)
-async def onboarding_activity(message: Message, state: FSMContext) -> None:
-    activity = ACTIVITY_MAP.get(message.text or "")
-    if not activity:
-        await message.answer("Введи число от 1 до 5.")
-        return
+async def onboarding_activity_text_fallback(message: Message) -> None:
+    """Подсказка если пользователь пишет текст вместо нажатия кнопки."""
+    await message.answer("Выбери уровень активности, нажав на одну из кнопок выше 👆")
 
+
+@router.callback_query(OnboardingFSM.activity_level, F.data.startswith("activity:"))
+async def onboarding_activity_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    activity = callback.data.split(":")[1]
+    label = ACTIVITY_LABELS.get(activity, activity)
     data = await state.get_data()
     await state.clear()
 
@@ -130,19 +129,22 @@ async def onboarding_activity(message: Message, state: FSMContext) -> None:
             {
                 **data,
                 "activity_level": activity,
-                "telegram_user_id": message.from_user.id,
+                "telegram_user_id": callback.from_user.id,
             }
         ).execute()
     except Exception:
-        logger.exception("Failed to save user profile for %s", message.from_user.id)
-        await message.answer(
+        logger.exception("Failed to save user profile for %s", callback.from_user.id)
+        await callback.message.answer(
             "Не удалось сохранить профиль — проблема с базой данных. "
             "Попробуй ещё раз через /start."
         )
+        await callback.answer()
         return
 
-    await message.answer(
-        f"Отлично, {data['name']}! Профиль создан 🎉\n\n"
+    await callback.message.edit_text(f"Активность: {label} ✅")
+    await callback.message.answer(
+        f"Отлично, *{data['name']}*! Профиль создан 🎉\n\n"
         "Теперь я готов помогать тебе достигать целей. Чем займёмся?",
         reply_markup=main_menu_keyboard(),
     )
+    await callback.answer()

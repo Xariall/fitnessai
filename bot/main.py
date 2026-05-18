@@ -3,8 +3,9 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
-from bot.handlers import callbacks, chat, clear, start
+from bot.handlers import callbacks, chat, clear, commands, start
 from bot.middlewares.user import UserMiddleware
 from config import settings
 
@@ -14,6 +15,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+_BOT_COMMANDS = [
+    BotCommand(command="start", description="Начать / Главное меню"),
+    BotCommand(command="help", description="Помощь и возможности бота"),
+    BotCommand(command="profile", description="Мой профиль"),
+    BotCommand(command="menu", description="Показать меню"),
+    BotCommand(command="clear", description="Сбросить историю диалога"),
+]
+
 
 async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
@@ -22,11 +31,14 @@ async def main() -> None:
     # Middlewares
     dp.message.middleware(UserMiddleware())
 
-    # Routers (порядок важен: команды до общего chat)
+    # Routers (порядок важен: специфичные до общего chat)
     dp.include_router(start.router)
     dp.include_router(clear.router)
+    dp.include_router(commands.router)
     dp.include_router(callbacks.router)
     dp.include_router(chat.router)
+
+    await bot.set_my_commands(_BOT_COMMANDS)
 
     logger.info("Starting bot...")
     await dp.start_polling(bot)
