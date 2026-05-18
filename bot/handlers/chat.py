@@ -159,6 +159,30 @@ async def _transcribe_voice(audio_bytes: bytes) -> str:
     return response.text.strip()
 
 
+def _build_input_with_context(message: Message, user_text: str) -> str:
+    """Если пользователь ответил на сообщение бота — добавляем цитату как контекст."""
+    reply = message.reply_to_message
+    if not reply:
+        return user_text
+
+    # Проверяем что цитируется сообщение от бота
+    if not (reply.from_user and reply.from_user.is_bot):
+        return user_text
+
+    quoted = (reply.text or reply.caption or "").strip()
+    if not quoted:
+        return user_text
+
+    # Обрезаем длинные цитаты чтобы не раздувать контекст
+    if len(quoted) > 800:
+        quoted = quoted[:800] + "..."
+
+    return (
+        f"[Пользователь отвечает на твоё сообщение:\n«{quoted}»]\n\n"
+        f"{user_text}"
+    )
+
+
 @router.message(F.voice)
 async def handle_voice(message: Message, is_registered: bool = False) -> None:
     """Обработчик голосовых сообщений."""
@@ -185,7 +209,8 @@ async def handle_voice(message: Message, is_registered: bool = False) -> None:
     await status_msg.edit_text(
         f"🎙 _Распознал:_ «{transcription}»", parse_mode=ParseMode.MARKDOWN
     )
-    await _run_agent_streaming(message, message.from_user.id, transcription)
+    user_input = _build_input_with_context(message, transcription)
+    await _run_agent_streaming(message, message.from_user.id, user_input)
 
 
 @router.message()
@@ -195,5 +220,5 @@ async def handle_message(message: Message, is_registered: bool = False) -> None:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
 
-    user_input = message.text or ""
+    user_input = _build_input_with_context(message, message.text or "")
     await _run_agent_streaming(message, message.from_user.id, user_input)
