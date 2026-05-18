@@ -1,6 +1,7 @@
 import logging
 from functools import partial
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -72,7 +73,11 @@ def build_graph() -> StateGraph:
     graph.add_edge("tool_executor", "planner")
     graph.add_edge("responder", END)
 
-    return graph.compile()
+    # MemorySaver хранит историю диалога в памяти процесса (по thread_id = telegram_user_id).
+    # При перезапуске бота история сбрасывается.
+    # Для прода заменить на AsyncPostgresSaver (langgraph-checkpoint-postgres).
+    checkpointer = MemorySaver()
+    return graph.compile(checkpointer=checkpointer)
 
 
 agent_graph = build_graph()

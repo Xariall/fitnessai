@@ -30,3 +30,16 @@
   - agent/graph.py: _should_continue теперь ведёт в "responder" вместо END — узел responder больше не мёртвый код
   - agent/graph.py: add_conditional_edges с явным mapping {"tool_executor": ..., "responder": ...}
 - Добавлен check_env.py — скрипт проверки зависимостей и .env перед запуском
+- Написаны тесты: 87 тестов, все зелёные
+  - tests/tools/test_nutrition.py — формула КБЖУ, дневные итоги
+  - tests/tools/test_workouts.py — поиск упражнений
+  - tests/tools/test_progress.py — дельта веса, сводка за период
+  - tests/test_onboarding.py — парсинг цели/активности/веса
+  - tests/test_models.py — валидация Pydantic-моделей
+  - tests/test_llm_provider.py — фабрика LLM (mock)
+- pytest.ini добавлен; pytest + pytest-asyncio + pytest-cov добавлены в requirements.txt
+
+## 2026-05-18
+- agent/graph.py: добавлен MemorySaver checkpointer — агент теперь помнит историю диалога в рамках сессии (по thread_id = telegram_user_id)
+- bot/handlers/chat.py: добавлен try/except — при ошибке LLM/DB пользователь получает сообщение вместо необработанного исключения
+- bot/handlers/start.py: добавлен try/except вокруг INSERT в users — при сбое БД FSM откатывается и пользователь получает понятное сообщение

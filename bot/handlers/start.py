@@ -124,14 +124,22 @@ async def onboarding_activity(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()
 
-    client = await get_client()
-    await client.table("users").insert(
-        {
-            **data,
-            "activity_level": activity,
-            "telegram_user_id": message.from_user.id,
-        }
-    ).execute()
+    try:
+        client = await get_client()
+        await client.table("users").insert(
+            {
+                **data,
+                "activity_level": activity,
+                "telegram_user_id": message.from_user.id,
+            }
+        ).execute()
+    except Exception:
+        logger.exception("Failed to save user profile for %s", message.from_user.id)
+        await message.answer(
+            "Не удалось сохранить профиль — проблема с базой данных. "
+            "Попробуй ещё раз через /start."
+        )
+        return
 
     await message.answer(
         f"Отлично, {data['name']}! Профиль создан 🎉\n\n"

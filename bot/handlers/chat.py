@@ -22,14 +22,19 @@ async def handle_message(message: Message, is_registered: bool = False) -> None:
 
     await message.bot.send_chat_action(message.chat.id, "typing")
 
-    result = await agent_graph.ainvoke(
-        {
-            "messages": [HumanMessage(content=user_input)],
-            "user_profile": {},
-            "telegram_user_id": telegram_user_id,
-        },
-        config={"configurable": {"thread_id": str(telegram_user_id)}},
-    )
+    try:
+        result = await agent_graph.ainvoke(
+            # Передаём только новое сообщение — checkpointer сам добавит его к истории треда
+            {
+                "messages": [HumanMessage(content=user_input)],
+                "user_profile": {},
+                "telegram_user_id": telegram_user_id,
+            },
+            config={"configurable": {"thread_id": str(telegram_user_id)}},
+        )
+        reply = result["messages"][-1].content
+    except Exception:
+        logger.exception("Agent error for user %s", telegram_user_id)
+        reply = "Произошла ошибка при обработке запроса. Попробуй ещё раз."
 
-    last_message = result["messages"][-1]
-    await message.answer(last_message.content)
+    await message.answer(reply)
