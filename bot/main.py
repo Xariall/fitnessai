@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
-from bot.handlers import callbacks, chat, clear, commands, start
+from bot.handlers import callbacks, chat, clear, commands, direct, start
 from bot.middlewares.user import UserMiddleware
 from config import settings
 
@@ -38,6 +38,7 @@ async def main() -> None:
     dp.include_router(start.router)
     dp.include_router(clear.router)
     dp.include_router(commands.router)
+    dp.include_router(direct.router)
     dp.include_router(callbacks.router)
     dp.include_router(chat.router)
 

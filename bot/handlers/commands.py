@@ -157,7 +157,8 @@ async def cmd_today(message: Message, is_registered: bool = False) -> None:
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
-    await _quick_agent(message, "Покажи итог питания за сегодня")
+    from bot.handlers.direct import show_today_summary
+    await show_today_summary(message, message.from_user.id)
 
 
 @router.message(Command("progress"))
@@ -165,4 +166,5 @@ async def cmd_progress(message: Message, is_registered: bool = False) -> None:
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
-    await _quick_agent(message, "Покажи мою динамику веса за последний месяц")
+    from bot.handlers.direct import show_progress_dynamics
+    await show_progress_dynamics(message, message.from_user.id)

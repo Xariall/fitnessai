@@ -2,10 +2,18 @@ import logging
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from langchain_core.messages import HumanMessage
 
 from agent.graph import agent_graph
+from bot.handlers.commands import _show_profile
+from bot.handlers.direct import (
+    WeightFSM,
+    show_progress_dynamics,
+    show_today_summary,
+    show_workout_history,
+)
 from bot.keyboards.main import (
     main_menu_keyboard,
     nutrition_submenu_keyboard,
@@ -20,17 +28,12 @@ _QUICK_PROMPTS = {
     "nutrition_plan": "Составь мне план питания на сегодня",
     "workout_plan": "Составь мне тренировку на сегодня",
     "progress": "Покажи мой прогресс за последний месяц",
-    "profile": "Покажи мой профиль",
 }
 
-_SUBMENU_PROMPTS = {
+_SUBMENU_AGENT_PROMPTS = {
     "my_plan": "Составь мне тренировку на сегодня",
     "log_workout": "Запиши мою тренировку как выполненную",
-    "workout_history": "Покажи историю моих тренировок",
     "nutrition_plan": "Составь план питания на день",
-    "today_summary": "Что я съел сегодня? Покажи итог за день",
-    "log_measurement": "Хочу записать замер веса",
-    "my_dynamics": "Покажи мою динамику веса за последний месяц",
 }
 
 
@@ -48,7 +51,7 @@ async def _invoke_agent(callback: CallbackQuery, prompt: str) -> None:
         reply = result["messages"][-1].content
     except Exception:
         logger.exception("Agent error for user %s", telegram_user_id)
-        reply = "Произошла ошибка. Попробуй ещё раз."
+        reply = "Что-то пошло не так. Попробуй снова."
 
     try:
         await callback.message.answer(reply, parse_mode=ParseMode.MARKDOWN)
@@ -62,14 +65,51 @@ async def handle_menu_home(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+# ── Direct (без LLM) ──────────────────────────
+
+@router.callback_query(F.data == "submenu:today_summary")
+async def handle_today_summary(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await show_today_summary(callback.message, callback.from_user.id)
+
+
+@router.callback_query(F.data == "submenu:workout_history")
+async def handle_workout_history(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await show_workout_history(callback.message, callback.from_user.id)
+
+
+@router.callback_query(F.data == "submenu:my_dynamics")
+async def handle_my_dynamics(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await show_progress_dynamics(callback.message, callback.from_user.id)
+
+
+@router.callback_query(F.data == "submenu:log_measurement")
+async def handle_log_measurement(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await state.set_state(WeightFSM.waiting_for_weight)
+    await callback.message.answer(
+        "Сколько ты весишь сейчас? (в кг, например: `82.5`)",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+@router.callback_query(F.data == "quick:profile")
+async def handle_quick_profile(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await _show_profile(callback.message)
+
+
+# ── С LLM ────────────────────────────────────
+
 @router.callback_query(F.data.startswith("submenu:"))
 async def handle_submenu(callback: CallbackQuery) -> None:
     action = callback.data.split(":")[1]
-    prompt = _SUBMENU_PROMPTS.get(action)
+    prompt = _SUBMENU_AGENT_PROMPTS.get(action)
     if not prompt:
         await callback.answer()
         return
-
     await callback.answer("⏳")
     await _invoke_agent(callback, prompt)
 
@@ -81,7 +121,6 @@ async def handle_quick_action(callback: CallbackQuery) -> None:
     if not prompt:
         await callback.answer()
         return
-
     await callback.answer("⏳")
     await _invoke_agent(callback, prompt)
 
