@@ -1,6 +1,8 @@
 import logging
 
 from aiogram import Router
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 from langchain_core.messages import HumanMessage
 
@@ -24,7 +26,6 @@ async def handle_message(message: Message, is_registered: bool = False) -> None:
 
     try:
         result = await agent_graph.ainvoke(
-            # Передаём только новое сообщение — checkpointer сам добавит его к истории треда
             {
                 "messages": [HumanMessage(content=user_input)],
                 "user_profile": {},
@@ -37,4 +38,8 @@ async def handle_message(message: Message, is_registered: bool = False) -> None:
         logger.exception("Agent error for user %s", telegram_user_id)
         reply = "Произошла ошибка при обработке запроса. Попробуй ещё раз."
 
-    await message.answer(reply)
+    # Пробуем отправить с Markdown, при ошибке парсинга — plain text
+    try:
+        await message.answer(reply, parse_mode=ParseMode.MARKDOWN)
+    except TelegramBadRequest:
+        await message.answer(reply)
