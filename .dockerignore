@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.coverage
+htmlcov
+.env
+FitnessAI
+.git
+.gitignore
+*.md
+tests

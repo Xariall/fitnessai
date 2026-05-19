@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      # На macOS/Windows host.docker.internal указывает на хост-машину,
+      # где запущен Ollama на порту 11434
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
