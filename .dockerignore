@@ -11,3 +11,4 @@ FitnessAI
 .gitignore
 *.md
 tests
+.mcp.json
