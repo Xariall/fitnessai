@@ -142,7 +142,11 @@ async def _run_agent_streaming(message: Message, telegram_user_id: int, user_inp
     except Exception as exc:
         err_str = str(exc)
         is_quota = "429" in err_str or "ResourceExhausted" in type(exc).__name__ or "quota" in err_str.lower()
-        if is_quota:
+        is_no_tools = "does not support tools" in err_str
+        if is_no_tools:
+            logger.error("Ollama model does not support tools: %s", err_str)
+            user_msg = "⚠️ Текущая модель Ollama не поддерживает инструменты. Используй qwen2.5:7b или переключись на Gemini."
+        elif is_quota:
             if "PerDay" in err_str or "per_day" in err_str.lower():
                 user_msg = "⚠️ Дневной лимит AI-запросов исчерпан. Попробуй завтра или подключи платный тариф в Google AI Studio."
             else:
