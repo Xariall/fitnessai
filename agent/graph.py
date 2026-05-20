@@ -12,14 +12,19 @@ from agent.state import AgentState
 from agent.tools.motivation import send_motivation
 from agent.tools.nutrition import (
     calculate_daily_calories,
+    calculate_hydration,
+    check_nutrition_adjustment,
     generate_nutrition_plan,
     get_daily_nutrition_summary,
     get_food_info,
+    get_workout_nutrition_protocol,
     log_food,
 )
 from agent.tools.profile import get_user_profile, update_user_profile
-from agent.tools.progress import get_progress_summary, log_progress
+from agent.tools.progress import get_progress_summary, get_weekly_summary, log_progress
 from agent.tools.workouts import (
+    check_recovery_status,
+    create_training_cycle,
     find_exercises,
     generate_workout_plan,
     get_workout_history,
@@ -31,17 +36,27 @@ logger = logging.getLogger(__name__)
 TOOLS = [
     get_user_profile,
     update_user_profile,
+    # workouts
     generate_workout_plan,
     log_workout,
     get_workout_history,
     find_exercises,
+    check_recovery_status,
+    create_training_cycle,
+    # nutrition
     calculate_daily_calories,
     generate_nutrition_plan,
     log_food,
     get_daily_nutrition_summary,
     get_food_info,
+    get_workout_nutrition_protocol,
+    check_nutrition_adjustment,
+    calculate_hydration,
+    # progress
     log_progress,
     get_progress_summary,
+    get_weekly_summary,
+    # motivation
     send_motivation,
 ]
 

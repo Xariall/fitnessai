@@ -42,6 +42,12 @@ _TOOL_STATUS: dict[str, str] = {
     "get_user_profile": "👤 Загружаю профиль...",
     "update_user_profile": "✏️ Обновляю профиль...",
     "send_motivation": "💫 Готовлю мотивацию...",
+    "check_recovery_status": "🔄 Проверяю восстановление...",
+    "create_training_cycle": "🗓 Создаю тренировочный цикл...",
+    "get_workout_nutrition_protocol": "🥗 Составляю протокол питания...",
+    "check_nutrition_adjustment": "📊 Анализирую прогресс питания...",
+    "calculate_hydration": "💧 Считаю норму воды...",
+    "get_weekly_summary": "📊 Загружаю итог недели...",
 }
 
 

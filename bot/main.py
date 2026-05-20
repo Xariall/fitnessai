@@ -9,6 +9,7 @@ from bot.handlers import callbacks, chat, clear, commands, direct, photo, start
 from bot.handlers import inline as inline_handler
 from bot.handlers import settings as settings_handler
 from bot.middlewares.user import UserMiddleware
+from bot.scheduler import run_scheduler
 from config import settings
 
 logging.basicConfig(
@@ -57,6 +58,7 @@ async def main() -> None:
     await bot.set_my_commands(_BOT_COMMANDS)
 
     logger.info("Starting bot (persistent memory: SQLite)...")
+    scheduler_task = asyncio.create_task(run_scheduler(bot))
     try:
         await dp.start_polling(
             bot,
@@ -64,6 +66,7 @@ async def main() -> None:
             drop_pending_updates=True,
         )
     finally:
+        scheduler_task.cancel()
         await cleanup_graph()
 
 
