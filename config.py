@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     telegram_bot_token: str
 
@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
+
+    # 0 = безлимитно; >0 = максимум запросов к агенту в сутки на пользователя
+    max_requests_per_day: int = 0
 
     @field_validator("supabase_url")
     @classmethod

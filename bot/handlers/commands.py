@@ -104,14 +104,17 @@ async def cmd_help(message: Message, is_registered: bool = False) -> None:
         "📊 Отслеживаю прогресс\n"
         "⚖️ Записываю вес и статистику\n"
         "🎯 Помогаю достигать целей\n"
-        "🎙 Понимаю голосовые сообщения\n\n"
+        "🎙 Понимаю голосовые сообщения\n"
+        "📷 Распознаю еду по фото\n\n"
         "*Просто напиши мне:*\n"
         "• «Что мне сегодня поесть?»\n"
         "• «Составь тренировку на ноги»\n"
         "• «Съел овсянку 200г»\n"
         "• «Вешу 85кг»\n"
-        "• «Покажи мой прогресс»\n\n"
+        "• «Покажи мой прогресс»\n"
+        "• Отправь фото блюда — запишу КБЖУ\n\n"
         "*Команды:*\n"
+        "/stats — моя статистика\n"
         "/plan — план тренировки на сегодня\n"
         "/nutrition — план питания на день\n"
         "/today — итог питания за сегодня\n"
@@ -168,3 +171,12 @@ async def cmd_progress(message: Message, is_registered: bool = False) -> None:
         return
     from bot.handlers.direct import show_progress_dynamics
     await show_progress_dynamics(message, message.from_user.id)
+
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message, is_registered: bool = False) -> None:
+    if not is_registered:
+        await message.answer("Пожалуйста, начни с команды /start для регистрации.")
+        return
+    from bot.handlers.direct import show_stats
+    await show_stats(message, message.from_user.id)

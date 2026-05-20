@@ -27,15 +27,19 @@ async def load_profile(state: AgentState) -> AgentState:
 
 async def planner(state: AgentState, tools: list) -> AgentState:
     """Узел: планировщик — вызывает LLM с системным промптом и инструментами."""
+    from agent.chat_modes import get_mode
+
     llm = get_llm()
     llm_with_tools = llm.bind_tools(tools)
 
-    system_message = SystemMessage(
-        content=SYSTEM_PROMPT.format(
-            user_profile=state["user_profile"],
-            telegram_user_id=state["telegram_user_id"],
-        )
+    base_content = SYSTEM_PROMPT.format(
+        user_profile=state["user_profile"],
+        telegram_user_id=state["telegram_user_id"],
     )
+    mode = get_mode(state["telegram_user_id"])
+    system_content = base_content + ("\n\n" + mode.prompt_suffix if mode.prompt_suffix else "")
+
+    system_message = SystemMessage(content=system_content)
     messages = [system_message] + state["messages"]
     response = await llm_with_tools.ainvoke(messages)
 

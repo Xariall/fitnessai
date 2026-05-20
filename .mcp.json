@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "obsidian": {
-      "command": "npx",
-      "args": ["-y", "obsidian-mcp", "/Users/asanaliesmagambetov/Documents/fitnessAI_v2/FitnessAI"]
-    }
-  }
-}

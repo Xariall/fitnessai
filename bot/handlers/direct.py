@@ -247,6 +247,138 @@ async def show_progress_dynamics(message: Message, telegram_user_id: int) -> Non
 
 
 # ──────────────────────────────────────────────
+# Общая статистика (/stats)
+# ──────────────────────────────────────────────
+
+def _days_word(n: int) -> str:
+    if 11 <= n % 100 <= 19:
+        return "дней"
+    r = n % 10
+    if r == 1:
+        return "день"
+    if 2 <= r <= 4:
+        return "дня"
+    return "дней"
+
+
+async def show_stats(message: Message, telegram_user_id: int) -> None:
+    try:
+        user = await _get_user(telegram_user_id)
+        if not user:
+            await message.answer("Профиль не найден. Начни с /start.")
+            return
+
+        client = await get_client()
+        today = date.today().isoformat()
+        week_start = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        norms = _calc_norms(user)
+
+        # Калории за сегодня
+        today_food = (
+            await client.table("food_logs")
+            .select("calories")
+            .eq("user_id", user["id"])
+            .gte("logged_at", f"{today}T00:00:00")
+            .execute()
+        ).data or []
+        today_calories = int(sum(r["calories"] for r in today_food))
+
+        # Тренировки сегодня
+        today_workouts = (
+            await client.table("workout_logs")
+            .select("id")
+            .eq("user_id", user["id"])
+            .gte("completed_at", f"{today}T00:00:00")
+            .execute()
+        ).data or []
+        today_workout_count = len(today_workouts)
+
+        # Тренировки за неделю
+        week_workouts = (
+            await client.table("workout_logs")
+            .select("id")
+            .eq("user_id", user["id"])
+            .gte("completed_at", week_start)
+            .execute()
+        ).data or []
+        week_workout_count = len(week_workouts)
+
+        # Среднее КБЖУ за неделю (по дням)
+        week_food = (
+            await client.table("food_logs")
+            .select("calories, logged_at")
+            .eq("user_id", user["id"])
+            .gte("logged_at", week_start)
+            .execute()
+        ).data or []
+        days_calories: dict[str, int] = {}
+        for row in week_food:
+            day = row["logged_at"][:10]
+            days_calories[day] = days_calories.get(day, 0) + int(row["calories"])
+        avg_calories = int(sum(days_calories.values()) / len(days_calories)) if days_calories else 0
+
+        # Динамика веса за неделю
+        weight_logs = (
+            await client.table("progress_logs")
+            .select("weight_kg, measured_at")
+            .eq("user_id", user["id"])
+            .gte("measured_at", week_start)
+            .order("measured_at")
+            .execute()
+        ).data or []
+
+        weight_line = ""
+        if len(weight_logs) >= 2:
+            w_start = weight_logs[0]["weight_kg"]
+            w_end = weight_logs[-1]["weight_kg"]
+            delta = round(w_end - w_start, 1)
+            sign = "+" if delta > 0 else ""
+            weight_line = f"• Вес: {w_start} → {w_end} кг ({sign}{delta} кг)\n"
+        elif user.get("weight_kg"):
+            weight_line = f"• Вес: {user['weight_kg']} кг\n"
+
+        # Дней в приложении
+        days_in_app = 0
+        created_raw = user.get("created_at", "")
+        if created_raw:
+            try:
+                created_dt = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+                days_in_app = max((datetime.now(timezone.utc) - created_dt).days, 1)
+            except Exception:
+                pass
+
+        cal_pct = _pct(today_calories, norms["calories"])
+        avg_line = f"• Средние калории: {avg_calories} ккал/день\n" if avg_calories else ""
+
+        from bot.budget import get_count, get_remaining
+        from config import settings as cfg
+        request_count = get_count(telegram_user_id)
+        remaining = get_remaining(telegram_user_id, cfg.max_requests_per_day)
+        if cfg.max_requests_per_day > 0:
+            budget_line = f"\n_Запросов сегодня: {request_count} / {cfg.max_requests_per_day} (осталось: {remaining})_"
+        else:
+            budget_line = f"\n_Запросов сегодня: {request_count}_"
+
+        text = (
+            "📊 *Твоя статистика*\n\n"
+            "*Сегодня:*\n"
+            f"• Калории: {today_calories} / {norms['calories']} ккал ({cal_pct}%) {_progress_bar(today_calories, norms['calories'], 8)}\n"
+            f"• Тренировок: {today_workout_count}\n\n"
+            "*Эта неделя:*\n"
+            f"• Тренировок: {week_workout_count}\n"
+            f"{avg_line}"
+            f"{weight_line}\n"
+            f"*С начала:* {days_in_app} {_days_word(days_in_app)} в приложении 🔥"
+            f"{budget_line}"
+        )
+        await _send(message, text)
+
+    except Exception:
+        logger.exception("show_stats error for user %s", telegram_user_id)
+        await message.answer("Не удалось загрузить статистику. Попробуй ещё раз.")
+
+
+# ──────────────────────────────────────────────
 # FSM: Запись замера веса
 # ──────────────────────────────────────────────
 

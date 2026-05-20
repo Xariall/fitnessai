@@ -1,4 +1,6 @@
 import logging
+import os
+import pickle
 from functools import partial
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -43,21 +45,25 @@ TOOLS = [
     send_motivation,
 ]
 
+_CHECKPOINT_FILE = "data/checkpoints.pkl"
+
+# Инициализируется при вызове init_graph() в bot/main.py
+agent_graph = None
+_checkpointer: MemorySaver | None = None
+
 
 def _should_continue(state: AgentState) -> str:
-    """Переход после planner:
-    - есть tool_calls → tool_executor (выполнить инструменты, вернуться в planner)
-    - нет tool_calls  → responder (сформировать финальный ответ)
-    """
     last_message = state["messages"][-1]
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "tool_executor"
     return "responder"
 
 
-def build_graph() -> StateGraph:
-    graph = StateGraph(AgentState)
+def build_graph(checkpointer=None):
+    if checkpointer is None:
+        checkpointer = MemorySaver()
 
+    graph = StateGraph(AgentState)
     graph.add_node("load_profile", load_profile)
     graph.add_node("planner", partial(planner, tools=TOOLS))
     graph.add_node("tool_executor", ToolNode(TOOLS))
@@ -73,11 +79,54 @@ def build_graph() -> StateGraph:
     graph.add_edge("tool_executor", "planner")
     graph.add_edge("responder", END)
 
-    # MemorySaver хранит историю диалога в памяти процесса (по thread_id = telegram_user_id).
-    # При перезапуске бота история сбрасывается.
-    # Для прода заменить на AsyncPostgresSaver (langgraph-checkpoint-postgres).
-    checkpointer = MemorySaver()
     return graph.compile(checkpointer=checkpointer)
 
 
-agent_graph = build_graph()
+async def init_graph() -> None:
+    """Инициализирует граф агента.
+
+    Загружает сохранённые checkpoints из файла (если есть),
+    чтобы пользователи не теряли историю диалога при рестарте бота.
+    """
+    global agent_graph, _checkpointer
+
+    _checkpointer = MemorySaver()
+
+    if os.path.exists(_CHECKPOINT_FILE):
+        try:
+            with open(_CHECKPOINT_FILE, "rb") as f:
+                saved = pickle.load(f)
+            _checkpointer.storage.update(saved)
+            logger.info(
+                "Persistent memory: loaded %d conversation threads from %s",
+                len(saved),
+                _CHECKPOINT_FILE,
+            )
+        except Exception:
+            logger.warning(
+                "Could not load checkpoints from %s, starting fresh",
+                _CHECKPOINT_FILE,
+                exc_info=True,
+            )
+    else:
+        logger.info("Persistent memory: no checkpoint file found, starting fresh")
+
+    agent_graph = build_graph(_checkpointer)
+
+
+async def cleanup_graph() -> None:
+    """Сохраняет checkpoints на диск при остановке бота."""
+    global _checkpointer
+    if _checkpointer is None:
+        return
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open(_CHECKPOINT_FILE, "wb") as f:
+            pickle.dump(dict(_checkpointer.storage), f)
+        logger.info(
+            "Persistent memory: saved %d conversation threads to %s",
+            len(_checkpointer.storage),
+            _CHECKPOINT_FILE,
+        )
+    except Exception:
+        logger.exception("Failed to save checkpoints to %s", _CHECKPOINT_FILE)

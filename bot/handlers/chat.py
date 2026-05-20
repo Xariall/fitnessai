@@ -2,14 +2,15 @@ import asyncio
 import logging
 import time
 from io import BytesIO
+from typing import Optional
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import Message
+from aiogram.types import BufferedInputFile, Message
 from langchain_core.messages import HumanMessage
 
-from agent.graph import agent_graph
+import agent.graph as _agent_graph_module
 from bot.keyboards.main import (
     main_menu_keyboard,
     nutrition_submenu_keyboard,
@@ -63,8 +64,37 @@ async def _safe_edit(msg: Message, text: str, parse_mode: str | None = None) -> 
         pass
 
 
-async def _run_agent_streaming(message: Message, telegram_user_id: int, user_input: str) -> None:
-    """Запускает агента: показывает статус инструментов, финальный ответ — стримингом."""
+async def _generate_tts(text: str) -> bytes:
+    """Генерирует MP3-аудио из текста через edge-tts (ru-RU-SvetlanaNeural)."""
+    import edge_tts
+
+    communicate = edge_tts.Communicate(text, voice="ru-RU-SvetlanaNeural")
+    bio = BytesIO()
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            bio.write(chunk["data"])
+    bio.seek(0)
+    return bio.read()
+
+
+async def _run_agent_streaming(
+    message: Message,
+    telegram_user_id: int,
+    user_input: str,
+) -> Optional[str]:
+    """Запускает агента: показывает статус инструментов, финальный ответ — стримингом.
+
+    Возвращает финальный текст ответа (или None при ошибке).
+    """
+    from bot.budget import increment, is_allowed
+    if not is_allowed(telegram_user_id, settings.max_requests_per_day):
+        await message.answer(
+            f"⚠️ Дневной лимит запросов ({settings.max_requests_per_day}) исчерпан. "
+            "Попробуй завтра!"
+        )
+        return None
+    increment(telegram_user_id)
+
     placeholder = await message.answer("⏳ _Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
     typing_task = asyncio.create_task(_keep_typing(message.bot, message.chat.id))
 
@@ -77,7 +107,7 @@ async def _run_agent_streaming(message: Message, telegram_user_id: int, user_inp
     is_final_planner = True
 
     try:
-        async for event in agent_graph.astream_events(
+        async for event in _agent_graph_module.agent_graph.astream_events(
             {
                 "messages": [HumanMessage(content=user_input)],
                 "user_profile": {},
@@ -158,18 +188,20 @@ async def _run_agent_streaming(message: Message, telegram_user_id: int, user_inp
             await placeholder.edit_text(user_msg)
         except Exception:
             pass
-        return
+        return None
     finally:
         typing_task.cancel()
 
     if not accumulated:
         await _safe_edit(placeholder, "Не удалось получить ответ. Попробуй ещё раз.")
-        return
+        return None
 
     try:
         await placeholder.edit_text(accumulated, parse_mode=ParseMode.MARKDOWN)
     except TelegramBadRequest:
         await placeholder.edit_text(accumulated)
+
+    return accumulated
 
 
 async def _transcribe_voice(audio_bytes: bytes) -> str:
@@ -277,7 +309,19 @@ async def handle_voice(message: Message, is_registered: bool = False) -> None:
         f"🎙 _Распознал:_ «{transcription}»", parse_mode=ParseMode.MARKDOWN
     )
     user_input = _build_input_with_context(message, transcription)
-    await _run_agent_streaming(message, message.from_user.id, user_input)
+    response_text = await _run_agent_streaming(message, message.from_user.id, user_input)
+
+    # Голосовой ответ на голосовое сообщение
+    if response_text:
+        try:
+            audio_bytes = await _generate_tts(response_text)
+            if audio_bytes:
+                # edge-tts возвращает MP3 — используем answer_audio (не answer_voice)
+                await message.answer_audio(
+                    BufferedInputFile(audio_bytes, filename="response.mp3")
+                )
+        except Exception:
+            logger.warning("TTS failed for user %s", message.from_user.id, exc_info=True)
 
 
 @router.message()
