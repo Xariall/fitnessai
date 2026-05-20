@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:7b"
 
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
 
     # 0 = безлимитно; >0 = максимум запросов к агенту в сутки на пользователя
     max_requests_per_day: int = 0
