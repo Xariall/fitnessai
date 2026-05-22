@@ -5,20 +5,9 @@ from typing import Optional
 from langchain_core.tools import tool
 
 from db.client import get_client
+from db.utils import get_user_id as _get_user_id
 
 logger = logging.getLogger(__name__)
-
-
-async def _get_user_id(telegram_user_id: int) -> Optional[str]:
-    client = await get_client()
-    result = (
-        await client.table("users")
-        .select("id")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
-    )
-    return result.data["id"] if result.data else None
 
 
 @tool

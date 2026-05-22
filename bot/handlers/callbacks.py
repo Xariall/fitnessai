@@ -11,6 +11,7 @@ from bot.handlers.commands import _show_profile
 from bot.handlers.direct import (
     WeightFSM,
     show_progress_dynamics,
+    show_stats,
     show_today_summary,
     show_workout_history,
 )
@@ -34,6 +35,14 @@ _SUBMENU_AGENT_PROMPTS = {
     "my_plan": "Составь мне тренировку на сегодня",
     "log_workout": "Запиши мою тренировку как выполненную",
     "nutrition_plan": "Составь план питания на день",
+}
+
+_AFTER_AGENT_PROMPTS = {
+    "add_food": "Хочу записать еду — что я ел?",
+    "log_workout": "Запиши мою тренировку как выполненную",
+    "weekly": "Покажи итог моей недели — тренировки, питание, вес",
+    "recovery": "Проверь моё восстановление — могу ли я тренироваться сегодня?",
+    "hydration": "Рассчитай мою норму воды на сегодня",
 }
 
 
@@ -98,7 +107,7 @@ async def handle_log_measurement(callback: CallbackQuery, state: FSMContext) -> 
 @router.callback_query(F.data == "quick:profile")
 async def handle_quick_profile(callback: CallbackQuery) -> None:
     await callback.answer()
-    await _show_profile(callback.message)
+    await _show_profile(callback.message, telegram_user_id=callback.from_user.id)
 
 
 # ── С LLM ────────────────────────────────────
@@ -118,6 +127,41 @@ async def handle_submenu(callback: CallbackQuery) -> None:
 async def handle_quick_action(callback: CallbackQuery) -> None:
     action = callback.data.split(":")[1]
     prompt = _QUICK_PROMPTS.get(action)
+    if not prompt:
+        await callback.answer()
+        return
+    await callback.answer("⏳")
+    await _invoke_agent(callback, prompt)
+
+
+# ── After-action контекстные кнопки ──────────────────────────────────────────
+
+@router.callback_query(F.data == "after:stats")
+async def handle_after_stats(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await show_stats(callback.message, callback.from_user.id)
+
+
+@router.callback_query(F.data == "after:dynamics")
+async def handle_after_dynamics(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await show_progress_dynamics(callback.message, callback.from_user.id)
+
+
+@router.callback_query(F.data.startswith("after:"))
+async def handle_after_action(callback: CallbackQuery, state: FSMContext) -> None:
+    action = callback.data.split(":")[1]
+
+    if action == "log_measurement":
+        await callback.answer()
+        await state.set_state(WeightFSM.waiting_for_weight)
+        await callback.message.answer(
+            "Сколько ты весишь сейчас? (в кг, например: `82.5`)",
+            parse_mode="Markdown",
+        )
+        return
+
+    prompt = _AFTER_AGENT_PROMPTS.get(action)
     if not prompt:
         await callback.answer()
         return

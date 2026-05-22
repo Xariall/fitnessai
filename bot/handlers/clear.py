@@ -6,6 +6,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
+from agent.graph import clear_thread
 from bot.keyboards.main import confirm_keyboard
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ async def handle_clear_confirm(callback: CallbackQuery) -> None:
     """Удаляет последние сообщения в чате после подтверждения."""
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.answer("Очищаю...")
+    clear_thread(callback.from_user.id)
 
     chat_id = callback.message.chat.id
     current_id = callback.message.message_id

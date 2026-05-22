@@ -9,20 +9,24 @@ from llm.provider import get_llm
 logger = logging.getLogger(__name__)
 
 
-async def load_profile(state: AgentState) -> AgentState:
+async def load_profile(state: AgentState) -> dict:
     """Узел: подгружает профиль пользователя перед обработкой."""
     from db.client import get_client
 
     telegram_user_id = state["telegram_user_id"]
-    client = await get_client()
-    result = (
-        await client.table("users")
-        .select("*")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
-    )
-    return {**state, "user_profile": result.data or {}}
+    try:
+        client = await get_client()
+        result = (
+            await client.table("users")
+            .select("*")
+            .eq("telegram_user_id", telegram_user_id)
+            .single()
+            .execute()
+        )
+        return {"user_profile": result.data or {}}
+    except Exception:
+        logger.warning("load_profile: user %s not found or DB error", telegram_user_id)
+        return {"user_profile": {}}
 
 
 async def planner(state: AgentState, tools: list) -> AgentState:
@@ -63,7 +67,7 @@ async def planner(state: AgentState, tools: list) -> AgentState:
             fixed.append(tc)
         response = response.model_copy(update={"tool_calls": fixed})
 
-    return {**state, "messages": state["messages"] + [response]}
+    return {"messages": [response]}
 
 
 async def responder(state: AgentState) -> AgentState:

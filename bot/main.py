@@ -57,7 +57,7 @@ async def main() -> None:
 
     await bot.set_my_commands(_BOT_COMMANDS)
 
-    logger.info("Starting bot (persistent memory: SQLite)...")
+    logger.info("Starting bot (persistent memory: MemorySaver + pickle)...")
     scheduler_task = asyncio.create_task(run_scheduler(bot))
     try:
         await dp.start_polling(

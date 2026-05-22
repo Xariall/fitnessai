@@ -13,24 +13,11 @@ from bot.keyboards.main import (
     main_menu_keyboard,
     start_keyboard,
 )
+from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
 from db.client import get_client
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-_ACTIVITY_MULTIPLIERS = {
-    "sedentary": 1.2,
-    "light": 1.375,
-    "moderate": 1.55,
-    "active": 1.725,
-    "very_active": 1.9,
-}
-
-_GOAL_ADJUSTMENTS = {
-    "lose_weight": -300,
-    "gain_muscle": +300,
-    "maintain": 0,
-}
 
 GOAL_LABELS = {
     "lose_weight": "🔥 Похудение",
@@ -51,7 +38,7 @@ def _calculate_norms(weight_kg: float, height_cm: float, age: int, activity: str
     bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
     tdee = bmr * _ACTIVITY_MULTIPLIERS.get(activity, 1.55)
     calories = int(tdee + _GOAL_ADJUSTMENTS.get(goal, 0))
-    protein = round(weight_kg * 2.0)
+    protein = round(weight_kg * 2.0, 1)
     fat = round(calories * 0.25 / 9)
     carbs = round((calories - protein * 4 - fat * 9) / 4)
     return {"calories": calories, "protein": protein, "fat": fat, "carbs": carbs}
@@ -142,7 +129,11 @@ async def onboarding_age(message: Message, state: FSMContext) -> None:
     if not message.text or not message.text.isdigit():
         await message.answer("Пожалуйста, введи возраст числом, например: 28")
         return
-    await state.update_data(age=int(message.text))
+    age = int(message.text)
+    if not 10 <= age <= 120:
+        await message.answer("Возраст должен быть от 10 до 120 лет. Попробуй снова:")
+        return
+    await state.update_data(age=age)
     await message.answer("Какой у тебя рост? (в см, например: 178)")
     await state.set_state(OnboardingFSM.height)
 
@@ -153,6 +144,9 @@ async def onboarding_height(message: Message, state: FSMContext) -> None:
         height = float(message.text.replace(",", "."))
     except (ValueError, AttributeError):
         await message.answer("Пожалуйста, введи рост числом, например: 178")
+        return
+    if not 100 <= height <= 250:
+        await message.answer("Рост должен быть от 100 до 250 см. Попробуй снова:")
         return
     await state.update_data(height_cm=height)
     await message.answer("Какой сейчас вес? (в кг, например: 82.5)")
@@ -165,6 +159,9 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
         weight = float(message.text.replace(",", "."))
     except (ValueError, AttributeError):
         await message.answer("Пожалуйста, введи вес числом, например: 82.5")
+        return
+    if not 30 <= weight <= 300:
+        await message.answer("Вес должен быть от 30 до 300 кг. Попробуй снова:")
         return
 
     data = await state.get_data()
@@ -200,10 +197,8 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
         f"✅ Отлично, *{data['name']}*! Всё готово.\n\n"
         f"Твоя норма: *{norms['calories']} ккал/день*\n"
         f"Белки: {norms['protein']}г · Жиры: {norms['fat']}г · Углеводы: {norms['carbs']}г\n\n"
-        "Хочешь сразу получить план тренировок или план питания?",
-        reply_markup=after_onboarding_keyboard(),
-    )
-    await message.answer(
-        "Или просто напиши мне — я всегда здесь 💪",
+        "Хочешь сразу получить план тренировок или план питания?\n"
+        "_Или просто напиши мне — я всегда здесь 💪_",
+        parse_mode="Markdown",
         reply_markup=main_menu_keyboard(),
     )

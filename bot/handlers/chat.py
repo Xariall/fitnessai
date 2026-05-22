@@ -215,7 +215,7 @@ async def _transcribe_voice(audio_bytes: bytes) -> str:
     import google.generativeai as genai
 
     genai.configure(api_key=settings.gemini_api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel(settings.gemini_model)
     audio_part = {"mime_type": "audio/ogg", "data": audio_bytes}
     response = await asyncio.to_thread(
         model.generate_content,

@@ -28,19 +28,20 @@ _ACTIVITY_LABELS = {
 }
 
 
-async def _show_profile(message: Message) -> None:
+async def _show_profile(message: Message, telegram_user_id: int | None = None) -> None:
+    uid = telegram_user_id or message.from_user.id
     try:
         client = await get_client()
         result = (
             await client.table("users")
             .select("*")
-            .eq("telegram_user_id", message.from_user.id)
+            .eq("telegram_user_id", uid)
             .single()
             .execute()
         )
         profile = result.data
     except Exception:
-        logger.exception("Failed to load profile for %s", message.from_user.id)
+        logger.exception("Failed to load profile for %s", uid)
         await message.answer("Не удалось загрузить профиль. Попробуй ещё раз.")
         return
 

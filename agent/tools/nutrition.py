@@ -4,35 +4,11 @@ from typing import Optional
 
 from langchain_core.tools import tool
 
+from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
 from db.client import get_client
+from db.utils import get_user_id as _get_user_id
 
 logger = logging.getLogger(__name__)
-
-_ACTIVITY_MULTIPLIERS = {
-    "sedentary": 1.2,
-    "light": 1.375,
-    "moderate": 1.55,
-    "active": 1.725,
-    "very_active": 1.9,
-}
-
-_GOAL_ADJUSTMENTS = {
-    "lose_weight": -300,
-    "gain_muscle": +300,
-    "maintain": 0,
-}
-
-
-async def _get_user_id(telegram_user_id: int) -> Optional[str]:
-    client = await get_client()
-    result = (
-        await client.table("users")
-        .select("id")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
-    )
-    return result.data["id"] if result.data else None
 
 
 @tool

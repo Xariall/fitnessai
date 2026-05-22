@@ -8,26 +8,20 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardMarkup, Message
 
+from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
+from bot.keyboards.main import (
+    after_nutrition_keyboard,
+    after_progress_keyboard,
+    after_stats_keyboard,
+    after_weight_keyboard,
+    after_workout_keyboard,
+)
 from db.client import get_client
 
 logger = logging.getLogger(__name__)
 router = Router()
-
-_ACTIVITY_MULTIPLIERS = {
-    "sedentary": 1.2,
-    "light": 1.375,
-    "moderate": 1.55,
-    "active": 1.725,
-    "very_active": 1.9,
-}
-
-_GOAL_ADJUSTMENTS = {
-    "lose_weight": -300,
-    "gain_muscle": +300,
-    "maintain": 0,
-}
 
 _MEAL_LABELS = {
     "breakfast": "Завтрак",
@@ -63,17 +57,17 @@ def _calc_norms(user: dict) -> dict:
     bmr = 10 * user["weight_kg"] + 6.25 * user["height_cm"] - 5 * user["age"] + 5
     tdee = bmr * _ACTIVITY_MULTIPLIERS.get(user.get("activity_level", "moderate"), 1.55)
     calories = int(tdee + _GOAL_ADJUSTMENTS.get(user.get("goal", "maintain"), 0))
-    protein = round(user["weight_kg"] * 2.0)
+    protein = round(user["weight_kg"] * 2.0, 1)
     fat = round(calories * 0.25 / 9)
     carbs = round((calories - protein * 4 - fat * 9) / 4)
     return {"calories": calories, "protein": protein, "fat": fat, "carbs": carbs}
 
 
-async def _send(message: Message, text: str) -> None:
+async def _send(message: Message, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
     try:
-        await message.answer(text, parse_mode=ParseMode.MARKDOWN)
+        await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
     except TelegramBadRequest:
-        await message.answer(text)
+        await message.answer(text, reply_markup=reply_markup)
 
 
 # ──────────────────────────────────────────────
@@ -105,6 +99,7 @@ async def show_today_summary(message: Message, telegram_user_id: int) -> None:
                 "🍽 *Итог за сегодня*\n\n"
                 "Пока ничего не записано.\n"
                 "_Напиши что ел — я посчитаю!_",
+                reply_markup=after_nutrition_keyboard(),
             )
             return
 
@@ -130,7 +125,7 @@ async def show_today_summary(message: Message, telegram_user_id: int) -> None:
             f"Углеводы: `{c['carbs']} / {n['carbs']}г` {_progress_bar(c['carbs'], n['carbs'])} {_pct(c['carbs'], n['carbs'])}%\n\n"
             f"{hint}"
         )
-        await _send(message, text)
+        await _send(message, text, reply_markup=after_nutrition_keyboard())
 
     except Exception:
         logger.exception("show_today_summary error for user %s", telegram_user_id)
@@ -165,6 +160,7 @@ async def show_workout_history(message: Message, telegram_user_id: int) -> None:
                 "📋 *История тренировок*\n\n"
                 "Тренировок пока нет.\n"
                 "_Напиши «запиши тренировку» после занятия!_",
+                reply_markup=after_workout_keyboard(),
             )
             return
 
@@ -184,7 +180,7 @@ async def show_workout_history(message: Message, telegram_user_id: int) -> None:
                 short = notes[:80] + ("..." if len(notes) > 80 else "")
                 lines.append(f"   _{short}_")
 
-        await _send(message, "\n".join(lines))
+        await _send(message, "\n".join(lines), reply_markup=after_workout_keyboard())
 
     except Exception:
         logger.exception("show_workout_history error for user %s", telegram_user_id)
@@ -221,6 +217,7 @@ async def show_progress_dynamics(message: Message, telegram_user_id: int) -> Non
                 "📊 *Динамика веса*\n\n"
                 "Замеров пока нет.\n"
                 "_Запиши свой вес: нажми «Записать замер» или напиши «вешу 80кг»_",
+                reply_markup=after_progress_keyboard(),
             )
             return
 
@@ -239,7 +236,7 @@ async def show_progress_dynamics(message: Message, telegram_user_id: int) -> Non
             date_str = dt.astimezone().strftime("%-d %b")
             lines.append(f"• {date_str} — {log['weight_kg']} кг")
 
-        await _send(message, "\n".join(lines))
+        await _send(message, "\n".join(lines), reply_markup=after_progress_keyboard())
 
     except Exception:
         logger.exception("show_progress_dynamics error for user %s", telegram_user_id)
@@ -371,7 +368,7 @@ async def show_stats(message: Message, telegram_user_id: int) -> None:
             f"*С начала:* {days_in_app} {_days_word(days_in_app)} в приложении 🔥"
             f"{budget_line}"
         )
-        await _send(message, text)
+        await _send(message, text, reply_markup=after_stats_keyboard())
 
     except Exception:
         logger.exception("show_stats error for user %s", telegram_user_id)
@@ -440,6 +437,7 @@ async def handle_weight_input(message: Message, state: FSMContext) -> None:
             f"{delta_line}\n"
             f"Дата: {today_str}\n\n"
             "_Держи темп! 💪_",
+            reply_markup=after_weight_keyboard(),
         )
 
     except Exception:

@@ -30,7 +30,7 @@ async def _analyze_food_photo(image_bytes: bytes) -> str:
     import google.generativeai as genai
 
     genai.configure(api_key=settings.gemini_api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel(settings.gemini_model)
     image_part = {"mime_type": "image/jpeg", "data": image_bytes}
     response = await asyncio.to_thread(
         model.generate_content,

@@ -2,6 +2,7 @@ import logging
 import os
 import pickle
 from functools import partial
+from pathlib import Path
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -60,7 +61,7 @@ TOOLS = [
     send_motivation,
 ]
 
-_CHECKPOINT_FILE = "data/checkpoints.pkl"
+_CHECKPOINT_FILE = Path(__file__).parent.parent / "data" / "checkpoints.pkl"
 
 # Инициализируется при вызове init_graph() в bot/main.py
 agent_graph = None
@@ -107,7 +108,7 @@ async def init_graph() -> None:
 
     _checkpointer = MemorySaver()
 
-    if os.path.exists(_CHECKPOINT_FILE):
+    if _CHECKPOINT_FILE.exists():
         try:
             with open(_CHECKPOINT_FILE, "rb") as f:
                 saved = pickle.load(f)
@@ -135,7 +136,7 @@ async def cleanup_graph() -> None:
     if _checkpointer is None:
         return
     try:
-        os.makedirs("data", exist_ok=True)
+        _CHECKPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(_CHECKPOINT_FILE, "wb") as f:
             pickle.dump(dict(_checkpointer.storage), f)
         logger.info(
@@ -145,3 +146,11 @@ async def cleanup_graph() -> None:
         )
     except Exception:
         logger.exception("Failed to save checkpoints to %s", _CHECKPOINT_FILE)
+
+
+def clear_thread(telegram_user_id: int) -> None:
+    """Удаляет историю диалога пользователя из памяти агента."""
+    if _checkpointer is None:
+        return
+    thread_id = str(telegram_user_id)
+    _checkpointer.storage.pop(thread_id, None)

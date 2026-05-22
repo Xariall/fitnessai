@@ -18,6 +18,10 @@ def workout_submenu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📋 Мой план", callback_data="submenu:my_plan")],
             [InlineKeyboardButton(text="✅ Записать тренировку", callback_data="submenu:log_workout")],
             [InlineKeyboardButton(text="📈 История", callback_data="submenu:workout_history")],
+            [
+                InlineKeyboardButton(text="📊 Итог недели", callback_data="after:weekly"),
+                InlineKeyboardButton(text="🔄 Восстановление", callback_data="after:recovery"),
+            ],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
         ]
     )
@@ -28,6 +32,10 @@ def nutrition_submenu_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📋 Мой план питания", callback_data="submenu:nutrition_plan")],
             [InlineKeyboardButton(text="🍽 Итог за сегодня", callback_data="submenu:today_summary")],
+            [
+                InlineKeyboardButton(text="➕ Добавить еду", callback_data="after:add_food"),
+                InlineKeyboardButton(text="💧 Норма воды", callback_data="after:hydration"),
+            ],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
         ]
     )
@@ -38,6 +46,7 @@ def progress_submenu_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📝 Записать замер", callback_data="submenu:log_measurement")],
             [InlineKeyboardButton(text="📈 Моя динамика", callback_data="submenu:my_dynamics")],
+            [InlineKeyboardButton(text="📊 Статистика", callback_data="after:stats")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
         ]
     )
@@ -80,6 +89,10 @@ def activity_keyboard() -> InlineKeyboardMarkup:
                 callback_data="activity:moderate",
             )],
             [InlineKeyboardButton(
+                text="💪 Высокая активность (5–6 тренировок)",
+                callback_data="activity:active",
+            )],
+            [InlineKeyboardButton(
                 text="🔥 Очень активный (ежедневные тренировки)",
                 callback_data="activity:very_active",
             )],
@@ -116,6 +129,70 @@ def help_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="📊 Мой прогресс", callback_data="quick:progress"),
                 InlineKeyboardButton(text="👤 Профиль", callback_data="quick:profile"),
+            ],
+        ]
+    )
+
+
+# ── Контекстные кнопки после прямых ответов ──────────────────────────────────
+
+def after_nutrition_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="➕ Добавить еду", callback_data="after:add_food"),
+                InlineKeyboardButton(text="📊 Статистика", callback_data="after:stats"),
+            ],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
+        ]
+    )
+
+
+def after_workout_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Записать тренировку", callback_data="after:log_workout"),
+                InlineKeyboardButton(text="📋 Мой план", callback_data="submenu:my_plan"),
+            ],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
+        ]
+    )
+
+
+def after_progress_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📝 Записать замер", callback_data="submenu:log_measurement"),
+                InlineKeyboardButton(text="📊 Статистика", callback_data="after:stats"),
+            ],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
+        ]
+    )
+
+
+def after_stats_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🍽 Питание", callback_data="submenu:today_summary"),
+                InlineKeyboardButton(text="🏋️ Тренировка", callback_data="submenu:workout_history"),
+            ],
+            [
+                InlineKeyboardButton(text="📈 Прогресс", callback_data="after:dynamics"),
+                InlineKeyboardButton(text="🏠 Меню", callback_data="menu:home"),
+            ],
+        ]
+    )
+
+
+def after_weight_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📈 Моя динамика", callback_data="after:dynamics"),
+                InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home"),
             ],
         ]
     )

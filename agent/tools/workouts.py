@@ -4,10 +4,10 @@ from typing import Optional
 from langchain_core.tools import tool
 
 from db.client import get_client
+from db.utils import get_user_id as _get_user_id
 
 logger = logging.getLogger(__name__)
 
-# Встроенная база упражнений
 _EXERCISE_DB: list[dict] = [
     {"name": "Приседания", "muscle_group": "legs", "equipment": "none", "description": "Базовое упражнение на квадрицепсы и ягодицы."},
     {"name": "Жим штанги лёжа", "muscle_group": "chest", "equipment": "barbell", "description": "Базовое упражнение на грудь."},
@@ -26,18 +26,6 @@ _EXERCISE_DB: list[dict] = [
     {"name": "Растяжка квадрицепса", "muscle_group": "flexibility", "equipment": "none", "description": "Растяжка передней поверхности бедра."},
     {"name": "Растяжка спины (кошка-корова)", "muscle_group": "flexibility", "equipment": "none", "description": "Мобилизация позвоночника."},
 ]
-
-
-async def _get_user_id(telegram_user_id: int) -> Optional[str]:
-    client = await get_client()
-    result = (
-        await client.table("users")
-        .select("id")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
-    )
-    return result.data["id"] if result.data else None
 
 
 @tool
