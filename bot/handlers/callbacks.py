@@ -1,12 +1,13 @@
+import contextlib
 import logging
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
-from langchain_core.messages import HumanMessage
 
-from agent.graph import agent_graph
+from bot.handlers.chat import run_agent
 from bot.handlers.commands import _show_profile
 from bot.handlers.direct import (
     WeightFSM,
@@ -46,57 +47,48 @@ _AFTER_AGENT_PROMPTS = {
 }
 
 
-async def _invoke_agent(callback: CallbackQuery, prompt: str) -> None:
-    telegram_user_id = callback.from_user.id
-    try:
-        result = await agent_graph.ainvoke(
-            {
-                "messages": [HumanMessage(content=prompt)],
-                "user_profile": {},
-                "telegram_user_id": telegram_user_id,
-            },
-            config={"configurable": {"thread_id": str(telegram_user_id)}},
-        )
-        reply = result["messages"][-1].content
-    except Exception:
-        logger.exception("Agent error for user %s", telegram_user_id)
-        reply = "Что-то пошло не так. Попробуй снова."
+async def _strip_keyboard(callback: CallbackQuery) -> None:
+    """Убирает inline-клавиатуру у сообщения с нажатой кнопкой."""
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_reply_markup(reply_markup=None)
 
-    try:
-        await callback.message.answer(reply, parse_mode=ParseMode.MARKDOWN)
-    except Exception:
-        await callback.message.answer(reply)
 
+# ── Навигация ──────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "menu:home")
 async def handle_menu_home(callback: CallbackQuery) -> None:
-    await callback.message.answer("Главное меню", reply_markup=main_menu_keyboard())
     await callback.answer()
+    await _strip_keyboard(callback)
+    await callback.message.answer("Главное меню 🏠", reply_markup=main_menu_keyboard())
 
 
-# ── Direct (без LLM) ──────────────────────────
+# ── Прямые (без LLM) ──────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "submenu:today_summary")
 async def handle_today_summary(callback: CallbackQuery) -> None:
     await callback.answer()
+    await _strip_keyboard(callback)
     await show_today_summary(callback.message, callback.from_user.id)
 
 
 @router.callback_query(F.data == "submenu:workout_history")
 async def handle_workout_history(callback: CallbackQuery) -> None:
     await callback.answer()
+    await _strip_keyboard(callback)
     await show_workout_history(callback.message, callback.from_user.id)
 
 
 @router.callback_query(F.data == "submenu:my_dynamics")
 async def handle_my_dynamics(callback: CallbackQuery) -> None:
     await callback.answer()
+    await _strip_keyboard(callback)
     await show_progress_dynamics(callback.message, callback.from_user.id)
 
 
 @router.callback_query(F.data == "submenu:log_measurement")
 async def handle_log_measurement(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
+    await _strip_keyboard(callback)
     await state.set_state(WeightFSM.waiting_for_weight)
     await callback.message.answer(
         "Сколько ты весишь сейчас? (в кг, например: `82.5`)",
@@ -107,10 +99,11 @@ async def handle_log_measurement(callback: CallbackQuery, state: FSMContext) -> 
 @router.callback_query(F.data == "quick:profile")
 async def handle_quick_profile(callback: CallbackQuery) -> None:
     await callback.answer()
+    await _strip_keyboard(callback)
     await _show_profile(callback.message, telegram_user_id=callback.from_user.id)
 
 
-# ── С LLM ────────────────────────────────────
+# ── С LLM (streaming через run_agent) ─────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("submenu:"))
 async def handle_submenu(callback: CallbackQuery) -> None:
@@ -119,8 +112,8 @@ async def handle_submenu(callback: CallbackQuery) -> None:
     if not prompt:
         await callback.answer()
         return
-    await callback.answer("⏳")
-    await _invoke_agent(callback, prompt)
+    await callback.answer()
+    await run_agent(callback, prompt)
 
 
 @router.callback_query(F.data.startswith("quick:"))
@@ -130,21 +123,23 @@ async def handle_quick_action(callback: CallbackQuery) -> None:
     if not prompt:
         await callback.answer()
         return
-    await callback.answer("⏳")
-    await _invoke_agent(callback, prompt)
+    await callback.answer()
+    await run_agent(callback, prompt)
 
 
-# ── After-action контекстные кнопки ──────────────────────────────────────────
+# ── After-action контекстные кнопки ───────────────────────────────────────────
 
 @router.callback_query(F.data == "after:stats")
 async def handle_after_stats(callback: CallbackQuery) -> None:
     await callback.answer()
+    await _strip_keyboard(callback)
     await show_stats(callback.message, callback.from_user.id)
 
 
 @router.callback_query(F.data == "after:dynamics")
 async def handle_after_dynamics(callback: CallbackQuery) -> None:
     await callback.answer()
+    await _strip_keyboard(callback)
     await show_progress_dynamics(callback.message, callback.from_user.id)
 
 
@@ -154,6 +149,7 @@ async def handle_after_action(callback: CallbackQuery, state: FSMContext) -> Non
 
     if action == "log_measurement":
         await callback.answer()
+        await _strip_keyboard(callback)
         await state.set_state(WeightFSM.waiting_for_weight)
         await callback.message.answer(
             "Сколько ты весишь сейчас? (в кг, например: `82.5`)",
@@ -165,8 +161,8 @@ async def handle_after_action(callback: CallbackQuery, state: FSMContext) -> Non
     if not prompt:
         await callback.answer()
         return
-    await callback.answer("⏳")
-    await _invoke_agent(callback, prompt)
+    await callback.answer()
+    await run_agent(callback, prompt)
 
 
 @router.callback_query()

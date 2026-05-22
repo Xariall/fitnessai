@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import time
 from io import BytesIO
@@ -7,7 +8,7 @@ from typing import Optional
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import BufferedInputFile, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 from langchain_core.messages import HumanMessage
 
 import agent.graph as _agent_graph_module
@@ -83,26 +84,57 @@ async def _generate_tts(text: str) -> bytes:
     return bio.read()
 
 
-async def _run_agent_streaming(
-    message: Message,
-    telegram_user_id: int,
-    user_input: str,
+async def run_agent(
+    source: Message | CallbackQuery,
+    user_text: str,
+    *,
+    existing_placeholder: Message | None = None,
+    keyboard: InlineKeyboardMarkup | None = None,
 ) -> Optional[str]:
-    """Запускает агента: показывает статус инструментов, финальный ответ — стримингом.
+    """Unified agent invocation with streaming for both Message and CallbackQuery sources.
 
-    Возвращает финальный текст ответа (или None при ошибке).
+    For CallbackQuery: removes the old inline keyboard from the trigger message before
+    sending the placeholder, so the chat stays clean.
+
+    Args:
+        source: The triggering Message or CallbackQuery.
+        user_text: The user's input to pass to the agent.
+        existing_placeholder: Reuse an existing message as the placeholder (e.g. voice status msg).
+        keyboard: Inline keyboard to attach to the final response message.
     """
     from bot.budget import increment, is_allowed
+
+    # ── Extract source-specific handles ──────────────────────────────────────
+    if isinstance(source, CallbackQuery):
+        telegram_user_id = source.from_user.id
+        answer_fn = source.message.answer
+        bot = source.bot
+        chat_id = source.message.chat.id
+        # Remove the stale inline keyboard from the button message
+        with contextlib.suppress(TelegramBadRequest):
+            await source.message.edit_reply_markup(reply_markup=None)
+    else:
+        telegram_user_id = source.from_user.id
+        answer_fn = source.answer
+        bot = source.bot
+        chat_id = source.chat.id
+
+    # ── Budget check ─────────────────────────────────────────────────────────
     if not is_allowed(telegram_user_id, settings.max_requests_per_day):
-        await message.answer(
+        await answer_fn(
             f"⚠️ Дневной лимит запросов ({settings.max_requests_per_day}) исчерпан. "
             "Попробуй завтра!"
         )
         return None
     increment(telegram_user_id)
 
-    placeholder = await message.answer("⏳ _Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
-    typing_task = asyncio.create_task(_keep_typing(message.bot, message.chat.id))
+    # ── Placeholder ───────────────────────────────────────────────────────────
+    if existing_placeholder is not None:
+        placeholder = existing_placeholder
+    else:
+        placeholder = await answer_fn("⏳ _Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
+
+    typing_task = asyncio.create_task(_keep_typing(bot, chat_id))
 
     # pending — буфер текущего вызова планировщика (сбрасывается если вызван инструмент)
     pending = ""
@@ -115,7 +147,7 @@ async def _run_agent_streaming(
     try:
         async for event in _agent_graph_module.agent_graph.astream_events(
             {
-                "messages": [HumanMessage(content=user_input)],
+                "messages": [HumanMessage(content=user_text)],
                 "user_profile": {},
                 "telegram_user_id": telegram_user_id,
             },
@@ -126,12 +158,10 @@ async def _run_agent_streaming(
             node = event.get("metadata", {}).get("langgraph_node", "")
 
             if kind == "on_chat_model_start" and node == "planner":
-                # Новый вызов планировщика — сбрасываем буфер
                 pending = ""
                 is_final_planner = True
 
             elif kind == "on_tool_start":
-                # Планировщик решил вызвать инструмент — этот вызов НЕ финальный
                 is_final_planner = False
                 pending = ""
                 accumulated = ""
@@ -143,7 +173,6 @@ async def _run_agent_streaming(
             elif kind == "on_chat_model_stream" and node == "planner" and is_final_planner:
                 chunk = event["data"].get("chunk")
                 if not chunk or getattr(chunk, "tool_call_chunks", None):
-                    # tool_call chunk — значит это НЕ финальный ответ, сбрасываем
                     is_final_planner = False
                     pending = ""
                     continue
@@ -190,10 +219,8 @@ async def _run_agent_streaming(
         else:
             logger.exception("Streaming error for user %s", telegram_user_id)
             user_msg = "Что-то пошло не так. Попробуй снова через секунду."
-        try:
+        with contextlib.suppress(Exception):
             await placeholder.edit_text(user_msg)
-        except Exception:
-            pass
         return None
     finally:
         typing_task.cancel()
@@ -203,11 +230,16 @@ async def _run_agent_streaming(
         return None
 
     try:
-        await placeholder.edit_text(accumulated, parse_mode=ParseMode.MARKDOWN)
+        await placeholder.edit_text(accumulated, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
     except TelegramBadRequest:
-        await placeholder.edit_text(accumulated)
+        await placeholder.edit_text(accumulated, reply_markup=keyboard)
 
     return accumulated
+
+
+async def _run_agent_streaming(message: Message, telegram_user_id: int, user_input: str) -> Optional[str]:
+    """Backward-compat wrapper around run_agent for Message sources."""
+    return await run_agent(message, user_input)
 
 
 async def _transcribe_voice(audio_bytes: bytes) -> str:
@@ -312,10 +344,12 @@ async def handle_voice(message: Message, is_registered: bool = False) -> None:
         return
 
     await status_msg.edit_text(
-        f"🎙 _Распознал:_ «{transcription}»", parse_mode=ParseMode.MARKDOWN
+        f"🎙 _Распознал:_ «{transcription}»\n\n⏳ _Обрабатываю..._",
+        parse_mode=ParseMode.MARKDOWN,
     )
     user_input = _build_input_with_context(message, transcription)
-    response_text = await _run_agent_streaming(message, message.from_user.id, user_input)
+    # Reuse status_msg as the agent placeholder — keeps voice to 1 message total
+    response_text = await run_agent(message, user_input, existing_placeholder=status_msg)
 
     # Голосовой ответ на голосовое сообщение
     if response_text:
