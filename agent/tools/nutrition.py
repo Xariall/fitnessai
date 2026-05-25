@@ -51,12 +51,18 @@ async def generate_nutrition_plan(
 ) -> dict:
     """Сгенерировать план питания на день с конкретными блюдами.
 
+    Автоматически включает уже записанные сегодня приёмы пищи и генерирует
+    только оставшиеся под оставшийся калорийный бюджет.
+
     Args:
         telegram_user_id: ID пользователя в Telegram.
         preferences: Предпочтения или ограничения (непереносимости, вкусы).
     """
     import json, re
     from llm.provider import get_llm
+
+    _MEAL_ORDER = ["breakfast", "lunch", "dinner", "snack"]
+    _MEAL_LABELS = {"breakfast": "Завтрак", "lunch": "Обед", "dinner": "Ужин", "snack": "Перекус"}
 
     client = await get_client()
     profile_result = (
@@ -67,67 +73,117 @@ async def generate_nutrition_plan(
         .execute()
     )
     profile = profile_result.data or {}
-
     norms = await calculate_daily_calories.ainvoke({"telegram_user_id": telegram_user_id})
-
-    llm = get_llm()
-    pref_text = f"Предпочтения / ограничения: {preferences}." if preferences else ""
-    json_schema = (
-        '{"meals": ['
-        '{"type": "breakfast", "label": "Завтрак", '
-        '"items": [{"name": "...", "calories": int, "protein": float, "fat": float, "carbs": float}], '
-        '"total_calories": int}], '
-        '"daily_total": {"calories": int, "protein": float, "fat": float, "carbs": float}, '
-        '"norms": {"calories": int, "protein_g": float, "fat_g": float, "carbs_g": float}}'
-    )
-    prompt = (
-        f"Составь план питания на день.\n"
-        f"Профиль: вес {profile.get('weight_kg')} кг, цель: {profile.get('goal')}.\n"
-        f"Норма: {norms.get('calories')} ккал | "
-        f"Б {norms.get('protein_g')}г | Ж {norms.get('fat_g')}г | У {norms.get('carbs_g')}г.\n"
-        f"{pref_text}\n\n"
-        f"ВАЖНО:\n"
-        f"- Вес блюда указывай в граммах ГОТОВОГО (не сухого) продукта\n"
-        f"- Используй реалистичные КБЖУ. Справка: варёная овсянка 100г=88 ккал, "
-        f"варёная гречка 100г=110 ккал, куриная грудка 100г=165 ккал, "
-        f"яйцо 1шт=75 ккал, банан 100г=89 ккал, творог 5% 100г=121 ккал\n"
-        f"- Каждый приём пищи: 1-3 конкретных блюда с весом\n"
-        f"- Приёмы: breakfast/lunch/dinner и опционально snack\n\n"
-        f"Верни ТОЛЬКО JSON без пояснений и markdown:\n{json_schema}"
-    )
-    try:
-        response = await llm.ainvoke(prompt)
-        raw = response.content or ""
-    except Exception:
-        logger.exception("LLM call failed in generate_nutrition_plan for user %s", telegram_user_id)
-        return {"error": "Не удалось сгенерировать план питания — ошибка LLM.", "norms": norms}
-
-    # Убираем markdown-фенсы если модель их добавила
-    raw = re.sub(r"```(?:json)?", "", raw).strip()
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    try:
-        plan = json.loads(match.group()) if match else {"meals": []}
-    except json.JSONDecodeError:
-        logger.warning("JSON parse failed in generate_nutrition_plan, raw=%r", raw[:200])
-        plan = {"meals": []}
-
-    # Добавляем нормы в план если модель их не вернула
-    if "norms" not in plan:
-        plan["norms"] = norms
-
     user_id = await _get_user_id(telegram_user_id)
+
+    # ── Читаем сегодняшние логи ────────────────────────────────────────────────
+    today_logs: list[dict] = []
+    if user_id:
+        today = date.today().isoformat()
+        logs_result = (
+            await client.table("food_logs")
+            .select("food_name, meal_type, calories, protein, fat, carbs")
+            .eq("user_id", user_id)
+            .gte("logged_at", f"{today}T00:00:00")
+            .execute()
+        )
+        today_logs = logs_result.data or []
+
+    # ── Группируем уже съеденное по приёму пищи ───────────────────────────────
+    consumed_by_meal: dict[str, list] = {}
+    for log in today_logs:
+        consumed_by_meal.setdefault(log["meal_type"], []).append(log)
+
+    # Строим meal-объекты из реальных данных БД (не из LLM)
+    consumed_meals: list[dict] = []
+    consumed_cal = consumed_prot = consumed_fat = consumed_carb = 0.0
+    for mt in _MEAL_ORDER:
+        if mt not in consumed_by_meal:
+            continue
+        items = consumed_by_meal[mt]
+        mt_cal = sum(i["calories"] for i in items)
+        mt_prot = round(sum(i["protein"] for i in items), 1)
+        mt_fat = round(sum(i["fat"] for i in items), 1)
+        mt_carb = round(sum(i["carbs"] for i in items), 1)
+        consumed_meals.append({
+            "type": mt,
+            "label": _MEAL_LABELS[mt],
+            "already_eaten": True,
+            "items": [
+                {"name": i["food_name"], "calories": i["calories"],
+                 "protein": i["protein"], "fat": i["fat"], "carbs": i["carbs"]}
+                for i in items
+            ],
+            "total_calories": mt_cal,
+        })
+        consumed_cal += mt_cal
+        consumed_prot += mt_prot
+        consumed_fat += mt_fat
+        consumed_carb += mt_carb
+
+    # ── Считаем оставшийся бюджет ─────────────────────────────────────────────
+    remaining_cal = norms.get("calories", 0) - int(consumed_cal)
+    remaining_prot = round(norms.get("protein_g", 0) - consumed_prot, 1)
+    remaining_fat = round(norms.get("fat_g", 0) - consumed_fat, 1)
+    remaining_carb = round(norms.get("carbs_g", 0) - consumed_carb, 1)
+
+    remaining_types = [mt for mt in _MEAL_ORDER if mt not in consumed_by_meal]
+
+    # ── LLM генерирует только оставшиеся приёмы ───────────────────────────────
+    generated_meals: list[dict] = []
+    if remaining_types and remaining_cal > 50:
+        llm = get_llm()
+        pref_text = f"Предпочтения / ограничения: {preferences}." if preferences else ""
+        types_str = ", ".join(f"{_MEAL_LABELS[mt]} ({mt})" for mt in remaining_types)
+        json_schema = (
+            '{"meals": [{"type": "breakfast|lunch|dinner|snack", "label": "...", '
+            '"items": [{"name": "...", "calories": int, "protein": float, "fat": float, "carbs": float}], '
+            '"total_calories": int}]}'
+        )
+        prompt = (
+            f"Составь план питания только для приёмов: {types_str}.\n"
+            f"Профиль: вес {profile.get('weight_kg')} кг, цель: {profile.get('goal')}.\n"
+            f"Оставшийся бюджет: {remaining_cal} ккал | "
+            f"Б {remaining_prot}г | Ж {remaining_fat}г | У {remaining_carb}г.\n"
+            f"{pref_text}\n\n"
+            f"ВАЖНО:\n"
+            f"- Вес блюда в граммах ГОТОВОГО продукта\n"
+            f"- Реалистичные КБЖУ: овсянка варёная 100г=88 ккал, гречка варёная 100г=110 ккал, "
+            f"куриная грудка 100г=165 ккал, яйцо=75 ккал, творог 5% 100г=121 ккал\n"
+            f"- 1-3 блюда на приём\n"
+            f"- Суммарные калории всех приёмов ≈ {remaining_cal} ккал\n\n"
+            f"Верни ТОЛЬКО JSON без пояснений:\n{json_schema}"
+        )
+        try:
+            response = await llm.ainvoke(prompt)
+            raw = re.sub(r"```(?:json)?", "", response.content or "").strip()
+            match = re.search(r"\{.*\}", raw, re.DOTALL)
+            parsed = json.loads(match.group()) if match else {"meals": []}
+            generated_meals = parsed.get("meals", [])
+        except Exception:
+            logger.warning("LLM call/parse failed in generate_nutrition_plan for user %s", telegram_user_id)
+
+    # ── Собираем финальный план ────────────────────────────────────────────────
+    all_meals = consumed_meals + generated_meals
+    all_items = [item for meal in all_meals for item in meal.get("items", [])]
+    daily_total = {
+        "calories": sum(i["calories"] for i in all_items),
+        "protein": round(sum(i["protein"] for i in all_items), 1),
+        "fat": round(sum(i["fat"] for i in all_items), 1),
+        "carbs": round(sum(i["carbs"] for i in all_items), 1),
+    }
+    plan = {"meals": all_meals, "daily_total": daily_total, "norms": norms}
+
     if user_id:
         try:
-            await client.table("nutrition_plans").insert(
-                {
-                    "user_id": user_id,
-                    "target_calories": norms.get("calories", 0),
-                    "target_protein": norms.get("protein_g", 0),
-                    "target_fat": norms.get("fat_g", 0),
-                    "target_carbs": norms.get("carbs_g", 0),
-                    "plan": plan,
-                }
-            ).execute()
+            await client.table("nutrition_plans").insert({
+                "user_id": user_id,
+                "target_calories": norms.get("calories", 0),
+                "target_protein": norms.get("protein_g", 0),
+                "target_fat": norms.get("fat_g", 0),
+                "target_carbs": norms.get("carbs_g", 0),
+                "plan": plan,
+            }).execute()
         except Exception:
             logger.exception("Failed to save nutrition_plan to DB for user %s", telegram_user_id)
 
