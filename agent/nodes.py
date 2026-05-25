@@ -29,6 +29,29 @@ async def load_profile(state: AgentState) -> dict:
         return {"user_profile": {}}
 
 
+_INJURY_LABELS: dict[str, str] = {
+    "knee_injury": "колено",
+    "lower_back": "поясница",
+    "shoulder_injury": "плечо",
+    "elbow": "локоть",
+    "wrist": "запястье",
+    "hip": "бедро/таз",
+    "neck": "шея",
+}
+
+
+def _build_injuries_section(injuries: list[str]) -> str:
+    if not injuries:
+        return ""
+    listed = ", ".join(_INJURY_LABELS.get(i, i) for i in injuries)
+    return (
+        f"## ⚠️ ПРОТИВОПОКАЗАНИЯ ПОЛЬЗОВАТЕЛЯ\n"
+        f"Травмы: **{listed}**\n"
+        f"generate_workout_plan автоматически исключает опасные упражнения.\n"
+        f"НИКОГДА не предлагай упражнения с нагрузкой на эти зоны вручную."
+    )
+
+
 async def planner(state: AgentState, tools: list) -> AgentState:
     """Узел: планировщик — вызывает LLM с системным промптом и инструментами."""
     from agent.chat_modes import get_mode
@@ -36,9 +59,14 @@ async def planner(state: AgentState, tools: list) -> AgentState:
     llm = get_llm()
     llm_with_tools = llm.bind_tools(tools)
 
+    profile = state["user_profile"]
+    injuries: list[str] = profile.get("injuries") or []
+    injuries_section = _build_injuries_section(injuries)
+
     base_content = SYSTEM_PROMPT.format(
-        user_profile=state["user_profile"],
+        user_profile=profile,
         telegram_user_id=state["telegram_user_id"],
+        injuries_section=injuries_section,
     )
     mode = get_mode(state["telegram_user_id"])
     system_content = base_content + ("\n\n" + mode.prompt_suffix if mode.prompt_suffix else "")

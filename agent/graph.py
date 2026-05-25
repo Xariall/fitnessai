@@ -28,8 +28,10 @@ from agent.tools.workouts import (
     create_training_cycle,
     find_exercises,
     generate_workout_plan,
+    get_recovery_overview,
     get_workout_history,
     log_workout,
+    update_user_injuries,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,9 @@ TOOLS = [
     get_workout_history,
     find_exercises,
     check_recovery_status,
+    get_recovery_overview,
     create_training_cycle,
+    update_user_injuries,
     # nutrition
     calculate_daily_calories,
     generate_nutrition_plan,

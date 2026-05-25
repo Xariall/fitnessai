@@ -14,6 +14,7 @@ class User(BaseModel):
     height_cm: float
     goal: str  # lose_weight | gain_muscle | maintain
     activity_level: str  # sedentary | light | moderate | active | very_active
+    injuries: list[str] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
