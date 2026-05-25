@@ -1,4 +1,6 @@
 import logging
+import re as _re
+import unicodedata as _ud
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -8,6 +10,31 @@ from db.client import get_client
 from db.utils import get_user_id as _get_user_id
 
 logger = logging.getLogger(__name__)
+
+_INCREMENT_COMPOUND = 2.5
+_INCREMENT_ISOLATION = 1.25
+_NO_WEIGHT_EQUIPMENT = frozenset({"none"})
+
+
+def _parse_reps(reps) -> tuple[int, int]:
+    """Parse "8-10", "8 - 10", "8–10", "8", 10 → (lo, hi). Returns (0, 0) on failure."""
+    s = str(reps).strip()
+    m = _re.search(r"(\d+)\s*[-–]\s*(\d+)", s)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = _re.search(r"(\d+)", s)
+    if m:
+        v = int(m.group(1))
+        return v, v
+    return 0, 0
+
+
+def _normalize_key(name: str) -> str:
+    """Canonical exercise key: 'Bench-Press', 'жим лёжа', 'BENCH PRESS' → unified key."""
+    s = _ud.normalize("NFC", name.lower().strip())
+    s = s.replace("ё", "е").replace("-", " ")
+    s = _re.sub(r"\s+", " ", s)
+    return s
 
 
 _MUSCLE_KEYWORDS: dict[str, list[str]] = {
@@ -31,7 +58,7 @@ async def _get_recent_plan(user_id: str, focus: str, days: int = 7) -> dict | No
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     result = (
         await client.table("workouts")
-        .select("title, plan, created_at")
+        .select("id, title, plan, created_at")
         .eq("user_id", user_id)
         .gte("created_at", since)
         .order("created_at", desc=True)
@@ -50,7 +77,23 @@ async def _get_recent_plan(user_id: str, focus: str, days: int = 7) -> dict | No
                 f"{ex.get('name', '')} {ex.get('sets', '')}×{ex.get('reps', '')}"
                 for ex in exercises[:6]
             )
-            return {"title": row["title"], "exercises_summary": exercises_summary}
+            log_result = (
+                await client.table("workout_logs")
+                .select("performance, done_as_planned")
+                .eq("user_id", user_id)
+                .eq("workout_id", row["id"])
+                .order("completed_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            last_log = (log_result.data or [None])[0]
+            return {
+                "title": row["title"],
+                "exercises_summary": exercises_summary,
+                "plan_exercises": exercises,
+                "last_performance": (last_log or {}).get("performance") or [],
+                "last_done_as_planned": (last_log or {}).get("done_as_planned", False),
+            }
     return None
 
 
@@ -94,11 +137,43 @@ async def generate_workout_plan(
     progressive_note = ""
     if user_id:
         recent = await _get_recent_plan(user_id, focus, days=7)
-        if recent:
+        if recent and recent.get("last_performance") and not recent.get("last_done_as_planned"):
+            perf_by_key = {_normalize_key(ex["name"]): ex for ex in recent["last_performance"]}
+            lines = []
+            for planned_ex in recent.get("plan_exercises", []):
+                key = _normalize_key(planned_ex.get("name", ""))
+                actual = perf_by_key.get(key)
+                if actual:
+                    lo, hi = _parse_reps(planned_ex.get("reps", "8"))
+                    reps_done = actual.get("reps_done") or 0
+                    weight = actual.get("weight_kg")
+                    if weight is not None:
+                        note = "увеличь вес" if reps_done >= hi else "тот же вес"
+                        lines.append(f"- {planned_ex['name']}: {weight}кг × {reps_done} → {note}")
+            if lines:
+                progressive_note = (
+                    f"ПРОГРЕССИЯ (на основе прошлой тренировки '{recent['title']}'):\n"
+                    + "\n".join(lines)
+                )
+            else:
+                progressive_note = (
+                    f"ВАЖНО — ПРОГРЕССИЯ: недавно пользователь делал тренировку '{recent['title']}'. "
+                    f"Упражнения были: {recent['exercises_summary']}. "
+                    f"Используй те же упражнения и добавь прогрессию: +5–10% веса или +1–2 повторения."
+                )
+        elif recent:
             progressive_note = (
                 f"ВАЖНО — ПРОГРЕССИЯ: недавно пользователь делал тренировку '{recent['title']}'. "
                 f"Упражнения были: {recent['exercises_summary']}. "
                 f"Используй те же упражнения и добавь прогрессию: +5–10% веса или +1–2 повторения."
+            )
+        else:
+            progressive_note = (
+                "Нет истории. Оцени стартовый вес по профилю: "
+                f"вес тела {profile.get('weight_kg')}кг, цель {profile.get('goal')}, "
+                f"активность {profile.get('activity_level')}. "
+                "Ориентиры для начинающего: жим лёжа ≈ 40–50% веса тела, "
+                "приседания ≈ 50–60%, становая ≈ 60–70%, изолирующие ≈ 15–30%."
             )
 
     # Filter safe exercises in Python — no LLM needed for this step
@@ -128,7 +203,7 @@ async def generate_workout_plan(
         f"Используй ТОЛЬКО упражнения из этого списка (выбери 4–6 подходящих):\n"
         f"{exercises_context}\n\n"
         f"Верни JSON:\n"
-        f'{{"title": "...", "exercises": [{{"name": "...", "sets": 3, "reps": "10-12", "rest_seconds": 60}}]}}'
+        f'{{"title": "...", "exercises": [{{"name": "...", "sets": 3, "reps": "8-10", "weight_kg": 60, "rest_seconds": 90}}]}}'
     )
 
     try:
@@ -281,23 +356,184 @@ async def log_workout(
     telegram_user_id: int,
     notes: str,
     workout_id: Optional[str] = None,
-) -> str:
-    """Записать выполненную тренировку."""
+    performance: Optional[list[dict]] = None,
+    done_as_planned: bool = False,
+) -> dict:
+    """Записать выполненную тренировку.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        notes: Описание тренировки.
+        workout_id: ID плана тренировки (если был).
+        performance: Фактически выполненные упражнения.
+            [{"name": "Bench Press", "sets_done": 3, "reps_done": 12, "weight_kg": 80}]
+            Если None + done_as_planned=True + workout_id есть → скопировать из плана.
+            Если None + workout_id нет → записать только факт тренировки.
+        done_as_planned: True если пользователь сказал "всё по плану" — прогрессия не запускается.
+    """
     user_id = await _get_user_id(telegram_user_id)
     if not user_id:
-        return "Пользователь не найден."
+        return {"status": "error", "message": "Пользователь не найден."}
 
     client = await get_client()
+
+    # Fallback: done_as_planned + workout_id → copy reps lower bound from plan
+    if performance is None and done_as_planned and workout_id:
+        plan_result = (
+            await client.table("workouts")
+            .select("plan")
+            .eq("id", workout_id)
+            .single()
+            .execute()
+        )
+        plan_data = (plan_result.data or {}).get("plan") or {}
+        plan_exercises = plan_data.get("exercises", [])
+        if plan_exercises:
+            performance = []
+            for ex in plan_exercises:
+                lo, _ = _parse_reps(ex.get("reps", "8"))
+                performance.append({
+                    "name": ex.get("name", ""),
+                    "sets_done": ex.get("sets", 3),
+                    "reps_done": lo,
+                    "weight_kg": ex.get("weight_kg"),
+                })
+
+    # Add canonical key to each performance entry
+    if performance:
+        performance = [
+            {**ex, "key": _normalize_key(ex.get("name", ""))}
+            for ex in performance
+        ]
+
+    # Query previous log BEFORE insert (for suggest_details)
+    prev_logs = (
+        await client.table("workout_logs")
+        .select("done_as_planned")
+        .eq("user_id", user_id)
+        .order("completed_at", desc=True)
+        .limit(1)
+        .execute()
+    ).data or []
+    prev_was_as_planned = bool(prev_logs and prev_logs[0].get("done_as_planned"))
+    suggest_details = done_as_planned and prev_was_as_planned
+
+    # PR detection: load history once, filter in Python
+    pr_notes: list[str] = []
+    if performance:
+        history_result = (
+            await client.table("workout_logs")
+            .select("performance")
+            .eq("user_id", user_id)
+            .order("completed_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+        all_past = [
+            ex
+            for log in (history_result.data or [])
+            for ex in (log.get("performance") or [])
+        ]
+        for ex in performance:
+            key = ex.get("key", "")
+            same_ex = [h for h in all_past if h.get("key") == key]
+            past_weights = [h["weight_kg"] for h in same_ex if h.get("weight_kg") is not None]
+            ex_weight = ex.get("weight_kg")
+            ex_reps = ex.get("reps_done")
+            ex_name = ex.get("name", "")
+            if ex_weight is not None and (not past_weights or ex_weight > max(past_weights)):
+                pr_notes.append(f"🏆 Рекорд по весу: {ex_name} — {ex_weight}кг!")
+            elif ex_weight is not None and past_weights:
+                same_weight = [h for h in same_ex if h.get("weight_kg") == ex_weight]
+                past_reps = [h["reps_done"] for h in same_weight if h.get("reps_done") is not None]
+                if past_reps and ex_reps is not None and ex_reps > max(past_reps):
+                    pr_notes.append(f"🏆 Рекорд по повт.: {ex_name} — {ex_weight}кг × {ex_reps}!")
+
+    # Build next_session recommendations (only if workout_id and not done_as_planned)
+    next_session: list[dict] = []
+    if workout_id and not done_as_planned and performance:
+        plan_result = (
+            await client.table("workouts")
+            .select("plan")
+            .eq("id", workout_id)
+            .single()
+            .execute()
+        )
+        plan_data = (plan_result.data or {}).get("plan") or {}
+        plan_exercises = plan_data.get("exercises", [])
+        perf_by_key = {ex.get("key", ""): ex for ex in performance}
+
+        from agent.tools.exercise_db import EXERCISE_DB
+        ex_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
+
+        for planned_ex in plan_exercises:
+            key = _normalize_key(planned_ex.get("name", ""))
+            actual = perf_by_key.get(key)
+            if not actual:
+                continue
+            lo, hi = _parse_reps(planned_ex.get("reps", "8"))
+            reps_done = actual.get("reps_done") or 0
+            weight = actual.get("weight_kg")
+
+            db_ex = ex_map.get(key)
+            is_compound = db_ex.is_compound if db_ex else False
+            equipment_set = db_ex.equipment if db_ex else frozenset()
+
+            if equipment_set <= _NO_WEIGHT_EQUIPMENT or weight is None:
+                # Bodyweight: suggest more reps
+                if reps_done >= hi:
+                    note = "↑ +2 повт."
+                    next_reps = f"{lo + 2}-{hi + 2}"
+                else:
+                    note = f"→ цель {reps_done + 1}+ повт."
+                    next_reps = f"{lo}-{hi}"
+                next_session.append({
+                    "name": planned_ex.get("name"),
+                    "weight_kg": None,
+                    "reps": next_reps,
+                    "note": note,
+                })
+            else:
+                increment = _INCREMENT_COMPOUND if is_compound else _INCREMENT_ISOLATION
+                if reps_done >= hi:
+                    next_weight = weight + increment
+                    next_reps = f"{lo}-{hi}"
+                    note = f"↑ +{increment}кг"
+                elif reps_done >= lo:
+                    next_weight = weight
+                    next_reps = f"{lo}-{hi}"
+                    note = f"→ тот же вес, цель {reps_done + 1}+ повт."
+                else:
+                    next_weight = weight
+                    next_reps = f"{lo}-{hi}"
+                    note = f"⚠️ тот же вес, добери до {lo} повт."
+                next_session.append({
+                    "name": planned_ex.get("name"),
+                    "weight_kg": next_weight,
+                    "reps": next_reps,
+                    "note": note,
+                })
+
     record: dict = {
         "user_id": user_id,
         "notes": notes,
         "completed_at": datetime.now(timezone.utc).isoformat(),
+        "done_as_planned": done_as_planned,
     }
     if workout_id:
         record["workout_id"] = workout_id
+    if performance:
+        record["performance"] = performance
 
     await client.table("workout_logs").insert(record).execute()
-    return "Тренировка записана! Отличная работа 💪"
+
+    return {
+        "status": "logged",
+        "message": "+1 тренировка в копилку 💪",
+        "next_session": next_session,
+        "pr_notes": pr_notes,
+        "suggest_details": suggest_details,
+    }
 
 
 @tool
@@ -504,6 +740,172 @@ async def create_training_cycle(
             logger.exception("Failed to save training cycle for user %s", telegram_user_id)
 
     return cycle
+
+
+@tool
+async def get_exercise_history(
+    telegram_user_id: int,
+    exercise_name: str,
+    limit: int = 10,
+) -> list[dict]:
+    """История результатов по конкретному упражнению (вес × повторения по датам).
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        exercise_name: Название упражнения (например "Bench Press" или "жим лёжа").
+        limit: Максимальное количество записей (по умолчанию 10).
+    """
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return [{"error": "Пользователь не найден."}]
+
+    client = await get_client()
+    since_90d = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    search_key = _normalize_key(exercise_name)
+
+    logs_result = (
+        await client.table("workout_logs")
+        .select("completed_at, performance")
+        .eq("user_id", user_id)
+        .gte("completed_at", since_90d)
+        .order("completed_at", desc=True)
+        .limit(limit * 5)
+        .execute()
+    )
+    logs = logs_result.data or []
+
+    # Exact key match first
+    history: list[dict] = []
+    for log in logs:
+        for ex in (log.get("performance") or []):
+            if ex.get("key") == search_key:
+                history.append({
+                    "date": log["completed_at"][:10],
+                    "name": ex.get("name"),
+                    "weight_kg": ex.get("weight_kg"),
+                    "reps_done": ex.get("reps_done"),
+                    "sets_done": ex.get("sets_done"),
+                })
+                break
+        if len(history) >= limit:
+            break
+
+    # Partial match fallback
+    if not history:
+        for log in logs:
+            for ex in (log.get("performance") or []):
+                if search_key in (ex.get("key") or ""):
+                    history.append({
+                        "date": log["completed_at"][:10],
+                        "name": ex.get("name"),
+                        "weight_kg": ex.get("weight_kg"),
+                        "reps_done": ex.get("reps_done"),
+                        "sets_done": ex.get("sets_done"),
+                    })
+                    break
+            if len(history) >= limit:
+                break
+        names = {e["name"] for e in history if e.get("name")}
+        if len(names) > 1:
+            return [{"warning": f"Уточни название: найдено {', '.join(sorted(names))}."}]
+
+    if not history:
+        return [{"message": f"История по упражнению '{exercise_name}' не найдена за последние 90 дней."}]
+
+    return list(reversed(history))
+
+
+@tool
+async def get_training_roadmap(telegram_user_id: int) -> dict:
+    """Дорожная карта прогресса по всем упражнениям за последние 60 дней.
+
+    Показывает историю весов и повторений, тренд прогрессии, и следующую цель для каждого упражнения.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+    """
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"exercises": {}, "total_sessions": 0, "error": "Пользователь не найден."}
+
+    client = await get_client()
+    since_60d = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+
+    logs_result = (
+        await client.table("workout_logs")
+        .select("completed_at, performance")
+        .eq("user_id", user_id)
+        .gte("completed_at", since_60d)
+        .order("completed_at", desc=True)
+        .execute()
+    )
+    logs = logs_result.data or []
+
+    if not logs:
+        return {
+            "exercises": {},
+            "total_sessions": 0,
+            "message": "Пока нет записей тренировок. Начни первую — и roadmap заполнится!",
+        }
+
+    from agent.tools.exercise_db import EXERCISE_DB
+    ex_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
+
+    # Aggregate per exercise key in chronological order (logs are desc, so reversed)
+    key_data: dict[str, list[dict]] = {}
+    for log in reversed(logs):
+        date = log["completed_at"][:10]
+        for ex in (log.get("performance") or []):
+            key = ex.get("key") or _normalize_key(ex.get("name", ""))
+            if key not in key_data:
+                key_data[key] = []
+            key_data[key].append({
+                "date": date,
+                "name": ex.get("name"),
+                "weight_kg": ex.get("weight_kg"),
+                "reps_done": ex.get("reps_done"),
+            })
+
+    exercises: dict = {}
+    for key, history_points in key_data.items():
+        if not history_points:
+            continue
+
+        display_name = history_points[-1].get("name") or key
+        weights = [p["weight_kg"] for p in history_points if p.get("weight_kg") is not None]
+
+        if len(weights) >= 2:
+            delta = round(weights[-1] - weights[0], 2)
+            if delta > 0:
+                trend = f"↑ +{delta}кг"
+            elif delta < 0:
+                trend = f"↓ {delta}кг"
+            else:
+                trend = "→ без изменений"
+        elif weights:
+            trend = "данных пока мало"
+        else:
+            trend = "вес не фиксировался"
+
+        next_target = None
+        if weights:
+            db_ex = ex_map.get(key)
+            is_compound = db_ex.is_compound if db_ex else False
+            increment = _INCREMENT_COMPOUND if is_compound else _INCREMENT_ISOLATION
+            next_target = round(weights[-1] + increment, 2)
+
+        exercises[key] = {
+            "display_name": display_name,
+            "history": [
+                {"date": p["date"], "weight_kg": p.get("weight_kg"), "reps_done": p.get("reps_done")}
+                for p in history_points
+            ],
+            "trend": trend,
+            "next_target": next_target,
+            "sessions_count": len(history_points),
+        }
+
+    return {"exercises": exercises, "total_sessions": len(logs)}
 
 
 @tool

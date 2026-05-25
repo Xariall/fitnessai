@@ -33,6 +33,8 @@ class WorkoutLog(BaseModel):
     workout_id: Optional[UUID] = None
     notes: Optional[str] = None
     completed_at: Optional[datetime] = None
+    performance: list[dict] = []
+    done_as_planned: bool = False
 
 
 class NutritionPlan(BaseModel):
