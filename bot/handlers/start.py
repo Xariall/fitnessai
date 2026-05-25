@@ -55,6 +55,7 @@ class OnboardingFSM(StatesGroup):
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext, is_registered: bool = False) -> None:
+    await state.clear()
     if is_registered:
         await message.answer(
             f"С возвращением! Чем займёмся? 💪",

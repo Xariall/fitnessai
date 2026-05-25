@@ -17,6 +17,9 @@ from bot.keyboards.main import (
     after_stats_keyboard,
     after_weight_keyboard,
     after_workout_keyboard,
+    nutrition_submenu_keyboard,
+    progress_submenu_keyboard,
+    workout_submenu_keyboard,
 )
 from db.client import get_client
 
@@ -381,6 +384,27 @@ async def show_stats(message: Message, telegram_user_id: int) -> None:
 
 class WeightFSM(StatesGroup):
     waiting_for_weight = State()
+
+
+_MENU_SUBMENUS = {
+    "🏋️ Тренировка": ("🏋️ *Тренировки*", workout_submenu_keyboard),
+    "🥗 Питание": ("🥗 *Питание*", nutrition_submenu_keyboard),
+    "📊 Прогресс": ("📊 *Прогресс*", progress_submenu_keyboard),
+}
+_MENU_ALL = frozenset({*_MENU_SUBMENUS.keys(), "👤 Профиль", "💪 Мотивация"})
+
+
+@router.message(WeightFSM.waiting_for_weight, F.text.in_(_MENU_ALL))
+async def weight_fsm_escape(message: Message, state: FSMContext) -> None:
+    """Кнопки главного меню выходят из FSM без потери нажатия."""
+    await state.clear()
+    text = message.text or ""
+    if text in _MENU_SUBMENUS:
+        title, kb_func = _MENU_SUBMENUS[text]
+        await message.answer(title, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
+    else:
+        # Профиль и Мотивация — просто сбрасываем, следующее нажатие сработает
+        await message.answer("Ввод веса отменён. Нажми кнопку ещё раз 👇")
 
 
 @router.message(WeightFSM.waiting_for_weight)
