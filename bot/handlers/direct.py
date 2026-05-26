@@ -507,9 +507,17 @@ async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
         await message.answer("Напиши что-нибудь — или нажми кнопку меню для отмены.")
         return
 
+    mode = data.get("input_mode", "")
+    if mode == "add_food":
+        prompt = f"Запиши в дневник питания: {user_text}"
+    elif mode == "log_workout":
+        prompt = f"Запиши тренировку как выполненную: {user_text}"
+    else:
+        prompt = user_text
+
     await state.clear()
     placeholder = await message.answer("_Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
-    await run_agent(message, user_text, existing_placeholder=placeholder)
+    await run_agent(message, prompt, existing_placeholder=placeholder)
 
 
 @router.message(InputModeFSM.waiting_for_input)

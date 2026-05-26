@@ -127,7 +127,7 @@ async def handle_add_food_input(callback: CallbackQuery, state: FSMContext) -> N
     await _strip_keyboard(callback)
     await state.clear()
     await state.set_state(InputModeFSM.waiting_for_input)
-    await state.update_data(created_at=time.time())
+    await state.update_data(created_at=time.time(), input_mode="add_food")
     await callback.message.answer(
         "Что ты сегодня ел? 🍽\n"
         "Напиши продукты и вес — например: «гречка 200 г, курица 150 г, 2 яйца»\n\n"
@@ -142,7 +142,7 @@ async def handle_log_workout_input(callback: CallbackQuery, state: FSMContext) -
     await _strip_keyboard(callback)
     await state.clear()
     await state.set_state(InputModeFSM.waiting_for_input)
-    await state.update_data(created_at=time.time())
+    await state.update_data(created_at=time.time(), input_mode="log_workout")
     await callback.message.answer(
         "Как прошла тренировка? 💪\n"
         "Напиши «всё по плану» или перечисли упражнения с весами — "
