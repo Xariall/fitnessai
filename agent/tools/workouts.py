@@ -1276,12 +1276,21 @@ async def get_next_session_plan(
         f'{{"title": "...", "exercises": [{{"name": "...", "sets": 3, "reps": "8-10", "weight_kg": 60, "rest_seconds": 90}}]}}'
     )
 
-    try:
-        response = await llm.ainvoke(prompt)
-        raw = re.sub(r"```(?:json)?", "", response.content or "").strip()
-    except Exception:
-        logger.exception("LLM call failed in get_next_session_plan for user %s", telegram_user_id)
-        return {"title": f"Тренировка: {focus}", "exercises": [], "error": "Ошибка генерации плана"}
+    raw = ""
+    for attempt in range(3):
+        try:
+            response = await llm.ainvoke(prompt)
+            raw = re.sub(r"```(?:json)?", "", response.content or "").strip()
+            break
+        except Exception as exc:
+            is_retryable = "503" in str(exc) or "unavailable" in str(exc).lower() or "quota" in str(exc).lower()
+            if is_retryable and attempt < 2:
+                import asyncio
+                await asyncio.sleep(2 ** attempt)
+                logger.warning("get_next_session_plan: retrying LLM (attempt %d) for user %s", attempt + 1, telegram_user_id)
+                continue
+            logger.exception("LLM call failed in get_next_session_plan for user %s", telegram_user_id)
+            return {"title": f"Тренировка: {focus}", "exercises": [], "error": "Ошибка генерации плана"}
 
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     try:
