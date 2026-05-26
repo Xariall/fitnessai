@@ -125,6 +125,14 @@ def activity_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def no_injuries_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Нет травм ✅", callback_data="onboarding:no_injuries")]
+        ]
+    )
+
+
 def start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -137,9 +145,17 @@ def after_onboarding_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="🏋️ План тренировок", callback_data="submenu:my_plan"),
+                InlineKeyboardButton(text="💪 Создать программу", callback_data="submenu:create_cycle"),
                 InlineKeyboardButton(text="🥗 План питания", callback_data="submenu:nutrition_plan"),
             ],
+        ]
+    )
+
+
+def no_active_cycle_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💪 Создать программу", callback_data="submenu:create_cycle")],
         ]
     )
 

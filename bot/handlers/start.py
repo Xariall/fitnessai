@@ -11,6 +11,7 @@ from bot.keyboards.main import (
     after_onboarding_keyboard,
     goal_keyboard,
     main_menu_keyboard,
+    no_injuries_keyboard,
     start_keyboard,
 )
 from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
@@ -44,6 +45,33 @@ def _calculate_norms(weight_kg: float, height_cm: float, age: int, activity: str
     return {"calories": calories, "protein": protein, "fat": fat, "carbs": carbs}
 
 
+_INJURY_KEYWORDS: dict[str, list[str]] = {
+    "knee_injury":      ["колен", "knee", "мениск", "связк"],
+    "lower_back":       ["поясниц", "спин", "lower back", "back", "протрузи", "грыж", "позвоноч", "крестц", "сколиоз", "остеохондроз"],
+    "shoulder_injury":  ["плеч", "shoulder", "ротатор"],
+    "elbow":            ["локот", "локт", "elbow", "теннисн"],
+    "wrist":            ["запясть", "wrist", "запяст"],
+    "hip":              ["бедр", "таз", "hip", "тазобедр"],
+    "neck":             ["шей", "шея", "neck", "шейн"],
+}
+
+
+def _parse_injuries(text: str) -> list[str]:
+    text_lower = text.lower()
+    matched = [
+        tag
+        for tag, keywords in _INJURY_KEYWORDS.items()
+        if any(kw in text_lower for kw in keywords)
+    ]
+    # Всегда сохраняем оригинальный текст — чтобы агент видел
+    # условия вроде «диабет», которые не попадают в структурированные теги
+    result = matched[:]
+    raw = text.strip()
+    if raw not in result:
+        result.append(raw)
+    return result
+
+
 class OnboardingFSM(StatesGroup):
     name = State()
     age = State()
@@ -51,6 +79,7 @@ class OnboardingFSM(StatesGroup):
     height = State()
     goal = State()
     activity_level = State()
+    injuries = State()
 
 
 @router.message(CommandStart())
@@ -165,10 +194,21 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
         await message.answer("Вес должен быть от 30 до 300 кг. Попробуй снова:")
         return
 
+    await state.update_data(weight_kg=weight)
+    await state.set_state(OnboardingFSM.injuries)
+    await message.answer(
+        "Есть травмы или противопоказания? 🩺\n\n"
+        "Напиши что беспокоит — например: «колено, поясница».\n"
+        "Буду учитывать при генерации тренировок.\n\n"
+        "_Если всё в порядке — нажми кнопку ниже:_",
+        parse_mode="Markdown",
+        reply_markup=no_injuries_keyboard(),
+    )
+
+
+async def _finish_onboarding(message: Message, state: FSMContext, injuries: list[str]) -> None:
     data = await state.get_data()
     await state.clear()
-
-    data["weight_kg"] = weight
 
     try:
         client = await get_client()
@@ -176,6 +216,7 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
             {
                 **data,
                 "telegram_user_id": message.from_user.id,
+                "injuries": injuries,
             }
         ).execute()
     except Exception:
@@ -187,15 +228,30 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
         return
 
     norms = _calculate_norms(
-        weight_kg=weight,
+        weight_kg=data.get("weight_kg", 70),
         height_cm=data.get("height_cm", 170),
         age=data.get("age", 25),
         activity=data.get("activity_level", "moderate"),
         goal=data.get("goal", "maintain"),
     )
 
+    injuries_line = ""
+    if injuries:
+        _tag_labels = {
+            "knee_injury": "колено",
+            "lower_back": "поясница/спина",
+            "shoulder_injury": "плечо",
+            "elbow": "локоть",
+            "wrist": "запястье",
+            "hip": "бедро/таз",
+            "neck": "шея",
+        }
+        readable = ", ".join(_tag_labels.get(i, i) for i in injuries)
+        injuries_line = f"⚠️ Учту: {readable}\n\n"
+
     await message.answer(
         f"✅ Отлично, *{data['name']}*! Всё готово.\n\n"
+        f"{injuries_line}"
         f"Твоя норма: *{norms['calories']} ккал/день*\n"
         f"Белки: {norms['protein']}г · Жиры: {norms['fat']}г · Углеводы: {norms['carbs']}г\n\n"
         "Хочешь сразу получить план тренировок или план питания?\n"
@@ -203,3 +259,20 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard(),
     )
+
+
+@router.callback_query(OnboardingFSM.injuries, F.data == "onboarding:no_injuries")
+async def onboarding_no_injuries(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await _finish_onboarding(callback.message, state, injuries=[])
+
+
+@router.message(OnboardingFSM.injuries)
+async def onboarding_injuries(message: Message, state: FSMContext) -> None:
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer("Напиши что беспокоит или нажми «Нет травм ✅»")
+        return
+    injuries = _parse_injuries(text)
+    await _finish_onboarding(message, state, injuries=injuries)

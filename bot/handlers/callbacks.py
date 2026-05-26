@@ -20,6 +20,7 @@ from bot.handlers.direct import (
 )
 from bot.keyboards.main import (
     cycle_complete_keyboard,
+    no_active_cycle_keyboard,
     nutrition_submenu_keyboard,
     progress_submenu_keyboard,
     workout_submenu_keyboard,
@@ -37,13 +38,20 @@ _QUICK_PROMPTS = {
 _SUBMENU_AGENT_PROMPTS = {
     "my_plan": "Составь мне тренировку на сегодня",
     "nutrition_plan": "Составь план питания на день",
+    "create_cycle": (
+        "Создай пользователю программу тренировок. "
+        "Используй данные из его профиля — цель, уровень активности. "
+        "Не задавай вопросов, действуй как тренер: сам выбери количество недель и частоту тренировок. "
+        "Сразу вызывай create_training_cycle."
+    ),
     "train_today": (
         "Используй get_next_session_plan чтобы получить тренировку по активному циклу. "
-        "Если активного цикла нет — используй get_recovery_overview и предложи подходящую группу мышц."
+        "Если активного цикла нет — сначала покажи статус восстановления через get_recovery_overview, "
+        "затем явно скажи пользователю что у него нет программы тренировок и предложи создать: "
+        "напиши «создай программу» или нажми кнопку — я всё сделаю сам!"
     ),
     "active_cycle": (
-        "Используй get_active_cycle чтобы показать статус активной программы. "
-        "Если нет — предложи создать новый цикл."
+        "Используй get_active_cycle чтобы показать статус активной программы."
     ),
 }
 
@@ -162,6 +170,23 @@ async def handle_log_workout_input(callback: CallbackQuery, state: FSMContext) -
 
 
 # ── С LLM (streaming через run_agent) ─────────────────────────────────────────
+
+@router.callback_query(F.data == "submenu:active_cycle")
+async def handle_active_cycle(callback: CallbackQuery) -> None:
+    """Показывает статус программы; если нет — сразу даёт кнопку создать."""
+    await callback.answer()
+    prompt = _SUBMENU_AGENT_PROMPTS["active_cycle"]
+    response = await run_agent(callback, prompt)
+    # Если нет активной программы — агент скажет об этом, добавим кнопку
+    if response and ("нет программы" in response.lower() or "no_active_cycle" in response.lower()
+                     or "нет активн" in response.lower() or "программы нет" in response.lower()
+                     or "напиши" in response.lower()):
+        await callback.message.answer(
+            "_Нажми кнопку — создам программу под тебя:_",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=no_active_cycle_keyboard(),
+        )
+
 
 @router.callback_query(F.data.startswith("submenu:"))
 async def handle_submenu(callback: CallbackQuery) -> None:
