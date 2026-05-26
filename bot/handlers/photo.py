@@ -46,14 +46,6 @@ async def handle_food_photo(message: Message, is_registered: bool = False) -> No
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
 
-    if settings.llm_provider != "gemini":
-        await message.answer(
-            "📷 Распознавание фото доступно только в режиме Gemini.\n"
-            "_Переключи провайдер: `LLM_PROVIDER=gemini`_",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        return
-
     status_msg = await message.answer("📷 _Анализирую фото..._", parse_mode=ParseMode.MARKDOWN)
 
     try:

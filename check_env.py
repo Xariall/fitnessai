@@ -36,8 +36,8 @@ def check_env() -> list[str]:
             if not value:
                 errors.append(f"  ✗ {name} не задан в .env")
 
-        if settings.llm_provider == "gemini" and not settings.gemini_api_key:
-            errors.append("  ✗ GEMINI_API_KEY не задан (требуется при LLM_PROVIDER=gemini)")
+        if not settings.gemini_api_key:
+            errors.append("  ✗ GEMINI_API_KEY не задан в .env")
 
     except Exception as e:
         errors.append(f"  ✗ Ошибка загрузки config.py: {e}")
@@ -64,7 +64,7 @@ def main() -> None:
         from config import settings
         print(f"  ✓ Telegram токен задан")
         print(f"  ✓ Supabase URL: {settings.supabase_url}")
-        print(f"  ✓ LLM provider: {settings.llm_provider}")
+        print(f"  ✓ LLM: Gemini ({settings.gemini_model})")
 
     all_errors = import_errors + env_errors
     print()

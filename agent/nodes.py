@@ -75,9 +75,8 @@ async def planner(state: AgentState, tools: list) -> AgentState:
     messages = [system_message] + state["messages"]
     response = await llm_with_tools.ainvoke(messages)
 
-    # Гарантируем правильный telegram_user_id во всех tool calls.
-    # qwen2.5 иногда галлюцинирует placeholder-значения (напр. 123456789)
-    # вместо реального ID из системного промпта.
+    # Гарантируем правильный telegram_user_id во всех tool calls —
+    # модель иногда галлюцинирует placeholder-значения (напр. 123456789).
     correct_id = state["telegram_user_id"]
     if getattr(response, "tool_calls", None):
         fixed = []

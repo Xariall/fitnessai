@@ -11,11 +11,6 @@ class Settings(BaseSettings):
     supabase_key: str          # anon key
     supabase_service_key: str  # service_role key (только бэкенд)
 
-    llm_provider: str = "ollama"  # ollama | gemini
-
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b"
-
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
 

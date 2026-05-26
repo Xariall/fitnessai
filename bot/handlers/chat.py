@@ -209,8 +209,8 @@ async def run_agent(
         is_quota = "429" in err_str or "ResourceExhausted" in type(exc).__name__ or "quota" in err_str.lower()
         is_no_tools = "does not support tools" in err_str
         if is_no_tools:
-            logger.error("Ollama model does not support tools: %s", err_str)
-            user_msg = "⚠️ Текущая модель Ollama не поддерживает инструменты. Используй qwen2.5:7b или переключись на Gemini."
+            logger.error("Model does not support tools: %s", err_str)
+            user_msg = "Что-то пошло не так. Попробуй снова через секунду."
         elif is_quota:
             if "PerDay" in err_str or "per_day" in err_str.lower():
                 user_msg = "⚠️ Дневной лимит AI-запросов исчерпан. Попробуй завтра или подключи платный тариф в Google AI Studio."
@@ -325,10 +325,6 @@ async def handle_voice(message: Message, is_registered: bool = False) -> None:
     """Обработчик голосовых сообщений."""
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
-        return
-
-    if settings.llm_provider != "gemini":
-        await message.answer("🎙 Голосовой ввод доступен только в режиме Gemini.")
         return
 
     status_msg = await message.answer("🎙 _Распознаю речь..._", parse_mode=ParseMode.MARKDOWN)
