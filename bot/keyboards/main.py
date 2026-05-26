@@ -29,13 +29,27 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 def workout_submenu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Мой план", callback_data="submenu:my_plan")],
-            [InlineKeyboardButton(text="✅ Записать тренировку", callback_data="submenu:log_workout")],
-            [InlineKeyboardButton(text="📈 История", callback_data="submenu:workout_history")],
+            [
+                InlineKeyboardButton(text="💪 Тренировка сегодня", callback_data="submenu:train_today"),
+                InlineKeyboardButton(text="✅ Записать тренировку", callback_data="submenu:log_workout"),
+            ],
+            [
+                InlineKeyboardButton(text="📅 Моя программа", callback_data="submenu:active_cycle"),
+                InlineKeyboardButton(text="📈 История", callback_data="submenu:workout_history"),
+            ],
             [
                 InlineKeyboardButton(text="📊 Итог недели", callback_data="after:weekly"),
                 InlineKeyboardButton(text="🔄 Восстановление", callback_data="after:recovery"),
             ],
+        ]
+    )
+
+
+def cycle_complete_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Начать новый цикл", callback_data="cycle:start_new")],
+            [InlineKeyboardButton(text="📊 Посмотреть итоги", callback_data="after:stats")],
         ]
     )
 
@@ -164,7 +178,7 @@ def after_workout_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ Записать тренировку", callback_data="after:log_workout"),
-                InlineKeyboardButton(text="📋 Мой план", callback_data="submenu:my_plan"),
+                InlineKeyboardButton(text="💪 Тренировка сегодня", callback_data="submenu:train_today"),
             ],
             [_back_button("workout")],
         ]

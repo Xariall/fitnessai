@@ -358,6 +358,8 @@ async def log_workout(
     workout_id: Optional[str] = None,
     performance: Optional[list[dict]] = None,
     done_as_planned: bool = False,
+    cycle_id: Optional[str] = None,
+    advance_cycle: bool = True,
 ) -> dict:
     """Записать выполненную тренировку.
 
@@ -370,6 +372,8 @@ async def log_workout(
             Если None + done_as_planned=True + workout_id есть → скопировать из плана.
             Если None + workout_id нет → записать только факт тренировки.
         done_as_planned: True если пользователь сказал "всё по плану" — прогрессия не запускается.
+        cycle_id: ID активного тренировочного цикла (если тренировка была частью цикла).
+        advance_cycle: True чтобы автоматически продвинуть позицию в цикле (по умолчанию True).
     """
     user_id = await _get_user_id(telegram_user_id)
     if not user_id:
@@ -525,7 +529,33 @@ async def log_workout(
     if performance:
         record["performance"] = performance
 
+    # Resolve active cycle if not provided explicitly
+    active_cycle_id = cycle_id
+    if not active_cycle_id:
+        cycle_row = await _get_active_cycle_data(user_id)
+        if cycle_row:
+            active_cycle_id = cycle_row["id"]
+
+    if active_cycle_id:
+        cycle_row = cycle_row if not cycle_id else (
+            await (await get_client()).table("training_cycles")
+            .select("current_week,current_session_index")
+            .eq("id", active_cycle_id).single().execute()
+        ).data
+        if cycle_row:
+            record["cycle_id"] = active_cycle_id
+            record["cycle_week"] = cycle_row.get("current_week")
+            record["cycle_session_index"] = cycle_row.get("current_session_index")
+
     await client.table("workout_logs").insert(record).execute()
+
+    # Advance cycle position after insert
+    cycle_advancement = None
+    if active_cycle_id and advance_cycle:
+        cycle_advancement = await _advance_cycle_position(user_id, active_cycle_id)
+        if cycle_advancement.get("reason") == "concurrent_update":
+            # Retry once
+            cycle_advancement = await _advance_cycle_position(user_id, active_cycle_id)
 
     return {
         "status": "logged",
@@ -533,6 +563,7 @@ async def log_workout(
         "next_session": next_session,
         "pr_notes": pr_notes,
         "suggest_details": suggest_details,
+        "cycle_advancement": cycle_advancement,
     }
 
 
@@ -651,18 +682,107 @@ async def check_recovery_status(
     }
 
 
+async def _advance_cycle_position(user_id: str, cycle_id: str) -> dict:
+    """Advance current_session_index; roll to next week when sessions exhausted.
+
+    Uses optimistic locking to guard against concurrent writes — if the row
+    changed between read and update, returns reason="concurrent_update".
+    """
+    client = await get_client()
+
+    row = (
+        await client.table("training_cycles")
+        .select("*")
+        .eq("id", cycle_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    ).data
+
+    if not row:
+        return {"advanced": False, "reason": "cycle_not_found"}
+    if row["status"] != "active":
+        return {"advanced": False, "reason": "not_active", "status": row["status"]}
+
+    cur_sess  = row["current_session_index"]
+    cur_week  = row["current_week"]
+    sess_per  = row["sessions_per_week"]
+    total_wks = row["total_weeks"]
+    done      = row["total_sessions_done"] + 1
+
+    next_sess = cur_sess + 1
+    next_week = cur_week
+    if next_sess >= sess_per:
+        next_sess = 0
+        next_week += 1
+
+    is_complete = next_week > total_wks
+    new_status  = "completed" if is_complete else "active"
+
+    update: dict = {
+        "current_session_index": next_sess,
+        "current_week":          min(next_week, total_wks),
+        "total_sessions_done":   done,
+        "status":                new_status,
+    }
+    if is_complete and not row.get("completed_at"):
+        from datetime import timezone
+        update["completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Optimistic locking: only update if position hasn't changed
+    result = (
+        await client.table("training_cycles")
+        .update(update)
+        .eq("id", cycle_id)
+        .eq("current_session_index", cur_sess)
+        .eq("current_week", cur_week)
+        .execute()
+    )
+
+    if not result.data:
+        return {"advanced": False, "reason": "concurrent_update"}
+
+    return {
+        "advanced": True,
+        "new_week": next_week,
+        "new_session_index": next_sess,
+        "is_complete": is_complete,
+        "total_sessions_done": done,
+    }
+
+
+async def _get_active_cycle_data(user_id: str) -> dict | None:
+    """Return the active training_cycles row for a user, or None."""
+    client = await get_client()
+    rows = (
+        await client.table("training_cycles")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("status", "active")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    ).data
+    return rows[0] if rows else None
+
+
 @tool
 async def create_training_cycle(
     telegram_user_id: int,
     goal: str,
-    weeks: int = 4,
+    weeks: int = 6,
+    sessions_per_week: int = 3,
 ) -> dict:
-    """Create a multi-week periodized training mesocycle (4–8 weeks).
+    """Создать многонедельный тренировочный цикл и сделать его активным.
+
+    Если у пользователя уже есть активный цикл — он будет завершён.
+    После создания цикл сразу активен: первая тренировка доступна через «💪 Тренировка сегодня».
 
     Args:
         telegram_user_id: ID пользователя в Telegram.
         goal: Цель (gain_muscle / lose_weight / strength / endurance).
         weeks: Количество недель (4–8).
+        sessions_per_week: Тренировок в неделю (2–5).
     """
     import json
     import re
@@ -670,6 +790,7 @@ async def create_training_cycle(
     from llm.provider import get_llm
 
     weeks = max(4, min(weeks, 8))
+    sessions_per_week = max(2, min(sessions_per_week, 5))
 
     client = await get_client()
     profile_result = (
@@ -686,24 +807,34 @@ async def create_training_cycle(
     if injuries:
         from agent.tools.exercise_db import injury_label
         listed = ", ".join(injury_label(i) for i in injuries)
-        injuries_note = f"ПРОТИВОПОКАЗАНИЯ: {listed}. Исключи упражнения с нагрузкой на эти зоны.\n"
+        injuries_note = f"ПРОТИВОПОКАЗАНИЯ: {listed}. Исключи фокусы с нагрузкой на эти зоны.\n"
+
+    # Phase boundaries
+    acc_end  = max(1, weeks // 2)
+    int_end  = max(acc_end + 1, weeks - 1)
 
     llm = get_llm()
     prompt = (
-        f"Составь мезоцикл тренировок на {weeks} недель.\n"
+        f"Составь расписание тренировочного цикла на {weeks} недель, {sessions_per_week} тренировки/нед.\n"
         f"Профиль: вес {profile.get('weight_kg')} кг, цель: {goal}, "
         f"активность: {profile.get('activity_level')}.\n"
         f"{injuries_note}"
-        f"Принципы:\n"
-        f"- Недели 1–{weeks//2}: накопление объёма (умеренная нагрузка)\n"
-        f"- Недели {weeks//2+1}–{weeks-1}: интенсификация (+5% веса, -10% объёма)\n"
-        f"- Последняя неделя: deload (снижение нагрузки на 30%)\n"
-        f"- Двойная прогрессия: сначала повторения до верхней границы диапазона, потом вес\n\n"
-        f"Верни JSON:\n"
-        f'{{"title": "...", "goal": "...", "weeks": {weeks}, '
-        f'"cycle": [{{"week": 1, "theme": "Накопление объёма", '
-        f'"sessions": [{{"day": "Понедельник", "focus": "...", '
-        f'"exercises": [{{"name": "...", "sets": 3, "reps": "10-12", "rest_seconds": 60}}]}}]}}]}}'
+        f"Фазы:\n"
+        f"- Недели 1–{acc_end}: накопление (accumulation)\n"
+        f"- Недели {acc_end+1}–{int_end}: интенсификация (intensification)\n"
+        f"- Неделя {weeks}: deload\n\n"
+        f"Верни ТОЛЬКО JSON в этом формате (без пояснений):\n"
+        f'{{"title": "Силовой цикл {weeks} недель", '
+        f'"weeks": ['
+        f'{{"week_number": 1, "theme": "Накопление объёма", "phase": "accumulation", '
+        f'"sessions": ['
+        f'{{"session_index": 0, "focus": "chest", "label": "Грудь / Трицепс"}}, '
+        f'{{"session_index": 1, "focus": "legs", "label": "Ноги"}}, '
+        f'{{"session_index": 2, "focus": "back", "label": "Спина / Бицепс"}}'
+        f']}}'
+        f']}}'
+        f'\n\nВажно: у каждой недели должно быть ровно {sessions_per_week} сессий. '
+        f'Все {weeks} недель. Используй focus: chest/back/legs/shoulders/arms/core.'
     )
 
     try:
@@ -715,31 +846,69 @@ async def create_training_cycle(
 
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     try:
-        cycle = json.loads(match.group()) if match else {}
+        parsed = json.loads(match.group()) if match else {}
     except json.JSONDecodeError:
         logger.warning("JSON parse failed in create_training_cycle, raw=%r", raw[:200])
-        cycle = {}
+        return {"error": "Не удалось разобрать ответ модели"}
 
-    if not cycle:
+    if not parsed or "weeks" not in parsed:
         return {"error": "Не удалось разобрать ответ модели"}
 
     user_id = await _get_user_id(telegram_user_id)
-    if user_id:
-        try:
-            saved = (
-                await client.table("workouts")
-                .insert({
-                    "user_id": user_id,
-                    "title": cycle.get("title", f"Цикл: {goal} {weeks} нед."),
-                    "plan": cycle,
-                })
-                .execute()
-            )
-            cycle["id"] = saved.data[0]["id"] if saved.data else None
-        except Exception:
-            logger.exception("Failed to save training cycle for user %s", telegram_user_id)
+    if not user_id:
+        return {"error": "Пользователь не найден"}
 
-    return cycle
+    # Deactivate existing active cycle
+    try:
+        await client.table("training_cycles").update({"status": "completed"}).eq(
+            "user_id", user_id
+        ).eq("status", "active").execute()
+    except Exception:
+        logger.warning("Failed to deactivate old cycle for user %s", telegram_user_id)
+
+    title = parsed.get("title") or f"{goal.replace('_', ' ').title()} цикл {weeks} нед."
+    schedule = {"weeks": parsed["weeks"]}
+
+    try:
+        saved = (
+            await client.table("training_cycles")
+            .insert({
+                "user_id": user_id,
+                "title": title,
+                "goal": goal,
+                "total_weeks": weeks,
+                "sessions_per_week": sessions_per_week,
+                "schedule": schedule,
+            })
+            .execute()
+        )
+        cycle_id = saved.data[0]["id"] if saved.data else None
+    except Exception:
+        logger.exception("Failed to save training cycle for user %s", telegram_user_id)
+        return {"error": "Не удалось сохранить цикл в БД"}
+
+    # Build next_session info for the response
+    try:
+        first_session = parsed["weeks"][0]["sessions"][0]
+        next_session = {
+            "focus": first_session.get("focus"),
+            "label": first_session.get("label"),
+            "week": 1,
+            "session_number": 1,
+        }
+    except (IndexError, KeyError):
+        next_session = None
+
+    return {
+        "cycle_id": cycle_id,
+        "title": title,
+        "goal": goal,
+        "total_weeks": weeks,
+        "sessions_per_week": sessions_per_week,
+        "week_1_theme": parsed["weeks"][0].get("theme") if parsed["weeks"] else "",
+        "next_session": next_session,
+        "schedule": schedule,
+    }
 
 
 @tool
@@ -906,6 +1075,303 @@ async def get_training_roadmap(telegram_user_id: int) -> dict:
         }
 
     return {"exercises": exercises, "total_sessions": len(logs)}
+
+
+@tool
+async def get_active_cycle(telegram_user_id: int) -> dict:
+    """Получить статус активного тренировочного цикла пользователя.
+
+    Возвращает текущую неделю, фазу и информацию о следующей сессии.
+    Если активного цикла нет — возвращает {"status": "no_active_cycle"}.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+    """
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"status": "no_active_cycle", "reason": "user_not_found"}
+
+    row = await _get_active_cycle_data(user_id)
+    if not row:
+        return {"status": "no_active_cycle"}
+
+    try:
+        week_data = row["schedule"]["weeks"][row["current_week"] - 1]
+        session_data = week_data["sessions"][row["current_session_index"]]
+        total = row["total_weeks"] * row["sessions_per_week"]
+        progress_pct = int(row["total_sessions_done"] / total * 100) if total else 0
+        sessions_left_this_week = row["sessions_per_week"] - row["current_session_index"]
+    except (IndexError, KeyError, TypeError) as exc:
+        logger.error("get_active_cycle: corrupted schedule cycle_id=%s: %s", row.get("id"), exc)
+        return {
+            "status": "active",
+            "cycle_id": str(row["id"]),
+            "title": row["title"],
+            "error": "Программа активна, но возникла ошибка отображения",
+        }
+
+    return {
+        "status": "active",
+        "cycle_id": str(row["id"]),
+        "title": row["title"],
+        "goal": row["goal"],
+        "current_week": row["current_week"],
+        "total_weeks": row["total_weeks"],
+        "total_sessions_done": row["total_sessions_done"],
+        "current_phase": week_data.get("phase"),
+        "week_theme": week_data.get("theme"),
+        "next_session": {
+            "session_index": session_data.get("session_index"),
+            "focus": session_data.get("focus"),
+            "label": session_data.get("label"),
+            "session_number_in_week": row["current_session_index"] + 1,
+            "sessions_per_week": row["sessions_per_week"],
+            "sessions_left_this_week": sessions_left_this_week,
+        },
+        "progress_pct": progress_pct,
+        "is_last_week": row["current_week"] == row["total_weeks"],
+    }
+
+
+@tool
+async def get_next_session_plan(
+    telegram_user_id: int,
+    duration_minutes: int = 45,
+    equipment: Optional[str] = None,
+) -> dict:
+    """Получить план следующей тренировки по активному циклу.
+
+    Если активного цикла нет — генерирует разовую тренировку через get_recovery_overview.
+    Если цикл есть — берёт фокус текущей сессии и передаёт контекст фазы в генерацию.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        duration_minutes: Длительность тренировки в минутах (по умолчанию 45).
+        equipment: Оборудование (none / barbell / dumbbells / cable / machine / bands / kettlebells).
+    """
+    import json
+    import re
+
+    from agent.tools.exercise_db import get_safe_exercises
+    from llm.provider import get_llm
+
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"error": "Пользователь не найден"}
+
+    client = await get_client()
+    profile_result = (
+        await client.table("users")
+        .select("*")
+        .eq("telegram_user_id", telegram_user_id)
+        .single()
+        .execute()
+    )
+    profile = profile_result.data or {}
+    injuries: list[str] = profile.get("injuries") or []
+
+    # Get active cycle
+    cycle_row = await _get_active_cycle_data(user_id)
+    cycle_context: dict | None = None
+    focus = "strength"
+    cycle_id: str | None = None
+
+    if cycle_row:
+        try:
+            week_data = cycle_row["schedule"]["weeks"][cycle_row["current_week"] - 1]
+            session_data = week_data["sessions"][cycle_row["current_session_index"]]
+            focus = session_data.get("focus", "strength")
+            cycle_id = str(cycle_row["id"])
+            cycle_context = {
+                "cycle_id": cycle_id,
+                "title": cycle_row["title"],
+                "current_week": cycle_row["current_week"],
+                "total_weeks": cycle_row["total_weeks"],
+                "phase": week_data.get("phase", "accumulation"),
+                "week_theme": week_data.get("theme", ""),
+                "session_label": session_data.get("label", ""),
+                "session_number_in_week": cycle_row["current_session_index"] + 1,
+            }
+        except (IndexError, KeyError, TypeError) as exc:
+            logger.error(
+                "get_next_session_plan: corrupted schedule cycle_id=%s: %s",
+                cycle_row.get("id"),
+                exc,
+            )
+            cycle_context = None
+
+    # Build progressive overload note
+    progressive_note = ""
+    recent = await _get_recent_plan(user_id, focus, days=7)
+    if recent and recent.get("last_performance") and not recent.get("last_done_as_planned"):
+        perf_by_key = {_normalize_key(ex["name"]): ex for ex in recent["last_performance"]}
+        lines = []
+        for planned_ex in recent.get("plan_exercises", []):
+            key = _normalize_key(planned_ex.get("name", ""))
+            actual = perf_by_key.get(key)
+            if actual:
+                lo, hi = _parse_reps(planned_ex.get("reps", "8"))
+                reps_done = actual.get("reps_done") or 0
+                weight = actual.get("weight_kg")
+                if weight is not None:
+                    note = "увеличь вес" if reps_done >= hi else "тот же вес"
+                    lines.append(f"- {planned_ex['name']}: {weight}кг × {reps_done} → {note}")
+        if lines:
+            progressive_note = (
+                f"ПРОГРЕССИЯ (на основе прошлой тренировки '{recent['title']}'):\n"
+                + "\n".join(lines)
+            )
+        elif recent:
+            progressive_note = (
+                f"ВАЖНО — ПРОГРЕССИЯ: недавно пользователь делал '{recent['title']}'. "
+                f"Упражнения: {recent['exercises_summary']}. +5–10% веса или +1–2 повторения."
+            )
+    elif not recent:
+        progressive_note = (
+            "Нет истории. Оцени стартовый вес по профилю: "
+            f"вес тела {profile.get('weight_kg')}кг, цель {profile.get('goal')}, "
+            f"активность {profile.get('activity_level')}."
+        )
+
+    # Phase-specific prompt injection
+    phase_note = ""
+    if cycle_context:
+        phase = cycle_context["phase"]
+        phase_map = {
+            "accumulation":    "4–5 подходов, 70–75% 1RM, повторения 10–12",
+            "intensification": "3–4 подхода, 80–85% 1RM, повторения 5–8",
+            "deload":          "2–3 подхода, -30% от прошлого веса, повторения 12–15",
+        }
+        phase_note = (
+            f"\nКОНТЕКСТ ЦИКЛА (Неделя {cycle_context['current_week']} из "
+            f"{cycle_context['total_weeks']} · {cycle_context['week_theme']}):\n"
+            f"Фаза: {phase} → {phase_map.get(phase, '')}\n"
+            f"Фокус: {cycle_context['session_label']}\n"
+        )
+
+    eq_filter = [equipment] if equipment else None
+    safe = get_safe_exercises(focus, injuries, equipment=eq_filter, max_count=15)
+    if not safe:
+        return {
+            "title": f"Тренировка: {focus}",
+            "exercises": [],
+            "error": (
+                f"Нет доступных упражнений для группы '{focus}' с учётом противопоказаний."
+            ),
+        }
+
+    exercises_context = "\n".join(f"- {ex.name}: {ex.description}" for ex in safe)
+
+    llm = get_llm()
+    prompt = (
+        f"Составь план тренировки.\n"
+        f"Профиль: вес {profile.get('weight_kg')} кг, рост {profile.get('height_cm')} см, "
+        f"цель: {profile.get('goal')}, активность: {profile.get('activity_level')}.\n"
+        f"Фокус: {focus}. Длительность: {duration_minutes} минут.\n"
+        f"{phase_note}\n"
+        f"{progressive_note}\n\n"
+        f"Используй ТОЛЬКО упражнения из этого списка (выбери 4–6 подходящих):\n"
+        f"{exercises_context}\n\n"
+        f"Верни JSON:\n"
+        f'{{"title": "...", "exercises": [{{"name": "...", "sets": 3, "reps": "8-10", "weight_kg": 60, "rest_seconds": 90}}]}}'
+    )
+
+    try:
+        response = await llm.ainvoke(prompt)
+        raw = re.sub(r"```(?:json)?", "", response.content or "").strip()
+    except Exception:
+        logger.exception("LLM call failed in get_next_session_plan for user %s", telegram_user_id)
+        return {"title": f"Тренировка: {focus}", "exercises": [], "error": "Ошибка генерации плана"}
+
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    try:
+        plan = json.loads(match.group()) if match else {"title": f"Тренировка: {focus}", "exercises": []}
+    except json.JSONDecodeError:
+        logger.warning("JSON parse failed in get_next_session_plan, raw=%r", raw[:200])
+        plan = {"title": f"Тренировка: {focus}", "exercises": []}
+
+    try:
+        saved = (
+            await client.table("workouts")
+            .insert({"user_id": user_id, "title": plan.get("title", focus), "plan": plan})
+            .execute()
+        )
+        plan["id"] = saved.data[0]["id"] if saved.data else None
+    except Exception:
+        logger.exception("Failed to save workout in get_next_session_plan for user %s", telegram_user_id)
+
+    if cycle_context:
+        plan["cycle_context"] = cycle_context
+        plan["cycle_id"] = cycle_id
+
+    return plan
+
+
+@tool
+async def get_cycle_summary(telegram_user_id: int) -> dict:
+    """Итоги завершённого или текущего тренировочного цикла.
+
+    Возвращает структурированные данные и готовый текст для отображения пользователю.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+    """
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"error": "Пользователь не найден"}
+
+    client = await get_client()
+
+    # Find most recent cycle (completed or active)
+    cycle_result = (
+        await client.table("training_cycles")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    cycle_rows = cycle_result.data or []
+    if not cycle_rows:
+        return {"error": "Нет тренировочных циклов"}
+
+    cycle = cycle_rows[0]
+    cycle_id = cycle["id"]
+
+    total_planned = cycle["total_weeks"] * cycle["sessions_per_week"]
+    done = cycle["total_sessions_done"]
+    completion_rate = round(done / total_planned, 2) if total_planned else 0.0
+
+    # Count logs linked to this cycle
+    logs_result = (
+        await client.table("workout_logs")
+        .select("cycle_week, completed_at")
+        .eq("user_id", user_id)
+        .eq("cycle_id", cycle_id)
+        .order("completed_at")
+        .execute()
+    )
+    linked_logs = logs_result.data or []
+    weeks_with_training = len({r.get("cycle_week") for r in linked_logs if r.get("cycle_week")})
+
+    summary_text = (
+        f"🏆 *Цикл завершён! {cycle['title']}*\n\n"
+        f"✅ {done} из {total_planned} тренировок выполнено "
+        f"({int(completion_rate * 100)}%)\n"
+        f"📅 {weeks_with_training} из {cycle['total_weeks']} недель отработано\n\n"
+        f"_Отличная работа! Готов к новому вызову?_"
+    )
+
+    return {
+        "cycle_id": str(cycle_id),
+        "title": cycle["title"],
+        "goal": cycle["goal"],
+        "total_sessions_done": done,
+        "total_sessions_planned": total_planned,
+        "completion_rate": completion_rate,
+        "weeks_completed": weeks_with_training,
+        "summary_text": summary_text,
+    }
 
 
 @tool

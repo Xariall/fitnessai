@@ -22,6 +22,7 @@ from bot.keyboards.main import (
     progress_submenu_keyboard,
     workout_submenu_keyboard,
 )
+from bot.helpers import get_cycle_banner
 from db.client import get_client
 
 logger = logging.getLogger(__name__)
@@ -158,17 +159,20 @@ async def show_workout_history(message: Message, telegram_user_id: int) -> None:
         )
         logs = result.data or []
 
+        banner = await get_cycle_banner(user["id"])
+
         if not logs:
+            prefix = banner or ""
             await _send(
                 message,
-                "📋 *История тренировок*\n\n"
+                f"{prefix}📋 *История тренировок*\n\n"
                 "Тренировок пока нет.\n"
                 "_Напиши «запиши тренировку» после занятия!_",
                 reply_markup=after_workout_keyboard(),
             )
             return
 
-        lines = ["📋 *История тренировок*\n"]
+        lines = [banner, "📋 *История тренировок*\n"] if banner else ["📋 *История тренировок*\n"]
         for i, log in enumerate(logs, 1):
             dt = datetime.fromisoformat(log["completed_at"].replace("Z", "+00:00"))
             date_str = dt.astimezone().strftime("%-d %b")
@@ -517,7 +521,15 @@ async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
 
     await state.clear()
     placeholder = await message.answer("_Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
-    await run_agent(message, prompt, existing_placeholder=placeholder)
+    response = await run_agent(message, prompt, existing_placeholder=placeholder)
+
+    if mode == "log_workout" and response and "🏆" in response:
+        from bot.keyboards.main import cycle_complete_keyboard
+        await message.answer(
+            "_Выбери что делаем дальше:_",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cycle_complete_keyboard(),
+        )
 
 
 @router.message(InputModeFSM.waiting_for_input)

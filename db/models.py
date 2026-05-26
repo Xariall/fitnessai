@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class User(BaseModel):
@@ -35,6 +35,9 @@ class WorkoutLog(BaseModel):
     completed_at: Optional[datetime] = None
     performance: list[dict] = []
     done_as_planned: bool = False
+    cycle_id: Optional[UUID] = None
+    cycle_week: Optional[int] = None
+    cycle_session_index: Optional[int] = None
 
 
 class NutritionPlan(BaseModel):
@@ -66,3 +69,48 @@ class ProgressLog(BaseModel):
     weight_kg: float
     notes: Optional[str] = None
     measured_at: Optional[datetime] = None
+
+
+# ── Training Cycle models ──────────────────────────────────────────────────────
+
+class TrainingCycleSession(BaseModel):
+    session_index: int
+    focus: str
+    label: str
+
+
+class TrainingCycleWeek(BaseModel):
+    week_number: int
+    theme: str
+    phase: Literal["accumulation", "intensification", "deload"]
+    sessions: list[TrainingCycleSession]
+
+
+class TrainingCycleSchedule(BaseModel):
+    weeks: list[TrainingCycleWeek]
+
+    @model_validator(mode="after")
+    def validate_session_counts(self) -> "TrainingCycleSchedule":
+        counts = {len(w.sessions) for w in self.weeks}
+        if len(counts) > 1:
+            raise ValueError("Все недели должны содержать одинаковое количество сессий")
+        return self
+
+
+class TrainingCycle(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Optional[UUID] = None
+    user_id: UUID
+    title: str
+    goal: str
+    total_weeks: int
+    sessions_per_week: int = 3
+    schedule: TrainingCycleSchedule
+    current_week: int = 1
+    current_session_index: int = 0
+    total_sessions_done: int = 0
+    status: str = "active"  # active | completed | paused
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None

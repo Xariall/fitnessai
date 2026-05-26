@@ -19,6 +19,7 @@ from bot.handlers.direct import (
     show_workout_history,
 )
 from bot.keyboards.main import (
+    cycle_complete_keyboard,
     nutrition_submenu_keyboard,
     progress_submenu_keyboard,
     workout_submenu_keyboard,
@@ -36,6 +37,14 @@ _QUICK_PROMPTS = {
 _SUBMENU_AGENT_PROMPTS = {
     "my_plan": "Составь мне тренировку на сегодня",
     "nutrition_plan": "Составь план питания на день",
+    "train_today": (
+        "Используй get_next_session_plan чтобы получить тренировку по активному циклу. "
+        "Если активного цикла нет — используй get_recovery_overview и предложи подходящую группу мышц."
+    ),
+    "active_cycle": (
+        "Используй get_active_cycle чтобы показать статус активной программы. "
+        "Если нет — предложи создать новый цикл."
+    ),
 }
 
 _AFTER_AGENT_PROMPTS = {
@@ -212,6 +221,17 @@ async def handle_after_action(callback: CallbackQuery, state: FSMContext) -> Non
         return
     await callback.answer()
     await run_agent(callback, prompt)
+
+
+@router.callback_query(F.data == "cycle:start_new")
+async def handle_cycle_start_new(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await run_agent(
+        callback,
+        "Предложи параметры нового цикла на основе предыдущего. "
+        "Покажи все три параметра (цель, частота, недели) и явно укажи что каждый можно изменить. "
+        "После подтверждения создай новый цикл через create_training_cycle.",
+    )
 
 
 @router.callback_query()
