@@ -45,10 +45,11 @@ def workout_submenu_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def cycle_complete_keyboard() -> InlineKeyboardMarkup:
+def cycle_complete_keyboard(cycle_id: str = "") -> InlineKeyboardMarkup:
+    start_new_data = f"cycle:start_new:{cycle_id}" if cycle_id else "cycle:start_new"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Начать новый цикл", callback_data="cycle:start_new")],
+            [InlineKeyboardButton(text="🔄 Начать новый цикл", callback_data=start_new_data)],
             [InlineKeyboardButton(text="📊 Посмотреть итоги", callback_data="after:stats")],
         ]
     )

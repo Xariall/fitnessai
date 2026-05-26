@@ -106,6 +106,8 @@ class TrainingCycle(BaseModel):
     goal: str
     total_weeks: int
     sessions_per_week: int = 3
+    training_type: Optional[str] = None  # strength | hypertrophy | functional | mixed
+    equipment: Optional[str] = None       # gym | home_dumbbells | bodyweight
     schedule: TrainingCycleSchedule
     current_week: int = 1
     current_session_index: int = 0
@@ -113,4 +115,5 @@ class TrainingCycle(BaseModel):
     status: str = "active"  # active | completed | paused
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    paused_at: Optional[datetime] = None
     created_at: Optional[datetime] = None

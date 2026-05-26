@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS public.training_cycles (
     goal                  text        NOT NULL,
     total_weeks           integer     NOT NULL,
     sessions_per_week     integer     NOT NULL DEFAULT 3,
+    training_type         text,                            -- strength | hypertrophy | functional | mixed
+    equipment             text,                            -- gym | home_dumbbells | bodyweight
     schedule              jsonb       NOT NULL DEFAULT '{}',
     -- schedule JSON structure:
     -- {"weeks": [{"week_number": 1, "theme": "Накопление", "phase": "accumulation",
@@ -18,11 +20,17 @@ CREATE TABLE IF NOT EXISTS public.training_cycles (
     status                text        NOT NULL DEFAULT 'active',  -- active/completed/paused
     started_at            timestamptz NOT NULL DEFAULT now(),
     completed_at          timestamptz,
+    paused_at             timestamptz,
     created_at            timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_training_cycles_user_status
     ON public.training_cycles (user_id, status);
+
+-- Prevent two active cycles per user at DB level
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_cycle
+    ON public.training_cycles (user_id)
+    WHERE status = 'active';
 
 ALTER TABLE public.training_cycles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service_role full access" ON public.training_cycles
@@ -39,3 +47,9 @@ CREATE INDEX IF NOT EXISTS idx_workout_logs_cycle_id
 
 CREATE INDEX IF NOT EXISTS idx_workout_logs_user_cycle
     ON public.workout_logs (user_id, cycle_id);
+
+-- Add new columns to existing table (idempotent if running on already-created table)
+ALTER TABLE public.training_cycles
+    ADD COLUMN IF NOT EXISTS training_type text,
+    ADD COLUMN IF NOT EXISTS equipment     text,
+    ADD COLUMN IF NOT EXISTS paused_at     timestamptz;

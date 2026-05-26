@@ -48,6 +48,7 @@ _TOOL_STATUS: dict[str, str] = {
     "get_active_cycle": "📅 Загружаю программу...",
     "get_next_session_plan": "💪 Готовлю тренировку по программе...",
     "get_cycle_summary": "🏆 Считаю итоги цикла...",
+    "get_cycle_by_id": "📋 Загружаю предыдущий цикл...",
     "get_workout_nutrition_protocol": "🥗 Составляю протокол питания...",
     "check_nutrition_adjustment": "📊 Анализирую прогресс питания...",
     "calculate_hydration": "💧 Считаю норму воды...",
