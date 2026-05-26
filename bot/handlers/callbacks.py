@@ -1,5 +1,6 @@
 import contextlib
 import logging
+import time
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -10,6 +11,7 @@ from aiogram.types import CallbackQuery
 from bot.handlers.chat import run_agent
 from bot.handlers.commands import _show_profile
 from bot.handlers.direct import (
+    InputModeFSM,
     WeightFSM,
     show_progress_dynamics,
     show_stats,
@@ -33,13 +35,10 @@ _QUICK_PROMPTS = {
 
 _SUBMENU_AGENT_PROMPTS = {
     "my_plan": "Составь мне тренировку на сегодня",
-    "log_workout": "Запиши мою тренировку как выполненную",
     "nutrition_plan": "Составь план питания на день",
 }
 
 _AFTER_AGENT_PROMPTS = {
-    "add_food": "Хочу записать еду — что я ел?",
-    "log_workout": "Запиши мою тренировку как выполненную",
     "weekly": "Покажи итог моей недели — тренировки, питание, вес",
     "recovery": "Вызови get_recovery_overview и покажи статус восстановления по всем группам мышц",
     "hydration": "Рассчитай мою норму воды на сегодня",
@@ -118,6 +117,39 @@ async def handle_quick_profile(callback: CallbackQuery) -> None:
     await callback.answer()
     await _strip_keyboard(callback)
     await _show_profile(callback.message, telegram_user_id=callback.from_user.id)
+
+
+# ── FSM-ввод: еда и тренировка ────────────────────────────────────────────────
+
+@router.callback_query(F.data == "after:add_food")
+async def handle_add_food_input(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await _strip_keyboard(callback)
+    await state.clear()
+    await state.set_state(InputModeFSM.waiting_for_input)
+    await state.update_data(created_at=time.time())
+    await callback.message.answer(
+        "Что ты сегодня ел? 🍽\n"
+        "Напиши продукты и вес — например: «гречка 200 г, курица 150 г, 2 яйца»\n\n"
+        "_Для отмены нажми любую кнопку меню._",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+@router.callback_query(F.data.in_({"after:log_workout", "submenu:log_workout"}))
+async def handle_log_workout_input(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await _strip_keyboard(callback)
+    await state.clear()
+    await state.set_state(InputModeFSM.waiting_for_input)
+    await state.update_data(created_at=time.time())
+    await callback.message.answer(
+        "Как прошла тренировка? 💪\n"
+        "Напиши «всё по плану» или перечисли упражнения с весами — "
+        "например: «жим 80 кг × 10, присед 100 кг × 8»\n\n"
+        "_Для отмены нажми любую кнопку меню._",
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
 
 # ── С LLM (streaming через run_agent) ─────────────────────────────────────────

@@ -1,5 +1,6 @@
 """Прямые ответы без LLM — чтение БД + форматирование."""
 import logging
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -467,3 +468,50 @@ async def handle_weight_input(message: Message, state: FSMContext) -> None:
     except Exception:
         logger.exception("handle_weight_input error for user %s", telegram_user_id)
         await message.answer("Не удалось сохранить замер. Попробуй ещё раз.")
+
+
+# ──────────────────────────────────────────────
+# FSM: Ввод еды / тренировки через кнопку
+# ──────────────────────────────────────────────
+
+class InputModeFSM(StatesGroup):
+    waiting_for_input = State()
+
+
+_INPUT_TIMEOUT_SEC = 900  # 15 минут
+
+
+@router.message(InputModeFSM.waiting_for_input, F.text.in_(_MENU_ALL))
+async def input_mode_escape(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    text = message.text or ""
+    if text in _MENU_SUBMENUS:
+        title, kb_func = _MENU_SUBMENUS[text]
+        await message.answer(title, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
+    else:
+        await message.answer("Ввод отменён. Нажми кнопку ещё раз 👇")
+
+
+@router.message(InputModeFSM.waiting_for_input, F.text)
+async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
+    from bot.handlers.chat import run_agent
+
+    data = await state.get_data()
+    if time.time() - data.get("created_at", 0) > _INPUT_TIMEOUT_SEC:
+        await state.clear()
+        await message.answer("⏱ Время ввода истекло. Нажми кнопку снова — я готов записать!")
+        return
+
+    user_text = (message.text or "").strip()
+    if not user_text:
+        await message.answer("Напиши что-нибудь — или нажми кнопку меню для отмены.")
+        return
+
+    await state.clear()
+    placeholder = await message.answer("_Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
+    await run_agent(message, user_text, existing_placeholder=placeholder)
+
+
+@router.message(InputModeFSM.waiting_for_input)
+async def handle_input_mode_non_text(message: Message) -> None:
+    await message.answer("Напиши текстом — или нажми кнопку меню для отмены.")
