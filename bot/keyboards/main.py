@@ -1,6 +1,20 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
 
+_BACK_LABELS: dict[str, str] = {
+    "workout":   "◀️ К тренировкам",
+    "nutrition": "◀️ К питанию",
+    "progress":  "◀️ К прогрессу",
+}
+
+
+def _back_button(section: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text=_BACK_LABELS[section],
+        callback_data=f"back:{section}",
+    )
+
+
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -22,7 +36,6 @@ def workout_submenu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📊 Итог недели", callback_data="after:weekly"),
                 InlineKeyboardButton(text="🔄 Восстановление", callback_data="after:recovery"),
             ],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
         ]
     )
 
@@ -36,7 +49,6 @@ def nutrition_submenu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="➕ Добавить еду", callback_data="after:add_food"),
                 InlineKeyboardButton(text="💧 Норма воды", callback_data="after:hydration"),
             ],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
         ]
     )
 
@@ -47,7 +59,6 @@ def progress_submenu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📝 Записать замер", callback_data="submenu:log_measurement")],
             [InlineKeyboardButton(text="📈 Моя динамика", callback_data="submenu:my_dynamics")],
             [InlineKeyboardButton(text="📊 Статистика", callback_data="after:stats")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
         ]
     )
 
@@ -143,7 +154,7 @@ def after_nutrition_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="➕ Добавить еду", callback_data="after:add_food"),
                 InlineKeyboardButton(text="📊 Статистика", callback_data="after:stats"),
             ],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
+            [_back_button("nutrition")],
         ]
     )
 
@@ -155,7 +166,7 @@ def after_workout_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="✅ Записать тренировку", callback_data="after:log_workout"),
                 InlineKeyboardButton(text="📋 Мой план", callback_data="submenu:my_plan"),
             ],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
+            [_back_button("workout")],
         ]
     )
 
@@ -167,7 +178,7 @@ def after_progress_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📝 Записать замер", callback_data="submenu:log_measurement"),
                 InlineKeyboardButton(text="📊 Статистика", callback_data="after:stats"),
             ],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home")],
+            [_back_button("progress")],
         ]
     )
 
@@ -181,7 +192,7 @@ def after_stats_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="📈 Прогресс", callback_data="after:dynamics"),
-                InlineKeyboardButton(text="🏠 Меню", callback_data="menu:home"),
+                _back_button("progress"),
             ],
         ]
     )
@@ -192,7 +203,7 @@ def after_weight_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📈 Моя динамика", callback_data="after:dynamics"),
-                InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:home"),
+                _back_button("progress"),
             ],
         ]
     )

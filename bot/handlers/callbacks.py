@@ -17,7 +17,6 @@ from bot.handlers.direct import (
     show_workout_history,
 )
 from bot.keyboards.main import (
-    main_menu_keyboard,
     nutrition_submenu_keyboard,
     progress_submenu_keyboard,
     workout_submenu_keyboard,
@@ -55,11 +54,29 @@ async def _strip_keyboard(callback: CallbackQuery) -> None:
 
 # ── Навигация ──────────────────────────────────────────────────────────────────
 
+_BACK_TARGETS = {
+    "workout":   ("🏋️ Тренировки", workout_submenu_keyboard),
+    "nutrition": ("🥗 Питание",     nutrition_submenu_keyboard),
+    "progress":  ("📊 Прогресс",    progress_submenu_keyboard),
+}
+
+
 @router.callback_query(F.data == "menu:home")
 async def handle_menu_home(callback: CallbackQuery) -> None:
-    await callback.answer()
+    """Legacy: старые сообщения с кнопкой menu:home — убираем клавиатуру без нового сообщения."""
+    await callback.answer("Главное меню открыто")
     await _strip_keyboard(callback)
-    await callback.message.answer("Главное меню 🏠", reply_markup=main_menu_keyboard())
+
+
+@router.callback_query(F.data.startswith("back:"))
+async def handle_back(callback: CallbackQuery) -> None:
+    section = callback.data.split(":", 1)[1]
+    if section not in _BACK_TARGETS:
+        await callback.answer()
+        return
+    title, kb_fn = _BACK_TARGETS[section]
+    await callback.answer()
+    await callback.message.edit_text(title, reply_markup=kb_fn())
 
 
 # ── Прямые (без LLM) ──────────────────────────────────────────────────────────
