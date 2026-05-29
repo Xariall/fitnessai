@@ -13,9 +13,16 @@ from bot.scheduler import run_scheduler
 from config import settings
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+# Заглушаем шумные библиотеки
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("aiogram").setLevel(logging.INFO)
+logging.getLogger("langchain").setLevel(logging.WARNING)
+logging.getLogger("langgraph").setLevel(logging.WARNING)
+logging.getLogger("google").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 _BOT_COMMANDS = [

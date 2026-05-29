@@ -53,6 +53,7 @@ _TOOL_STATUS: dict[str, str] = {
     "check_nutrition_adjustment": "📊 Анализирую прогресс питания...",
     "calculate_hydration": "💧 Считаю норму воды...",
     "get_weekly_summary": "📊 Загружаю итог недели...",
+    "delete_log_entry": "🗑 Удаляю запись...",
 }
 
 
@@ -161,6 +162,20 @@ async def run_agent(
             kind = event["event"]
             node = event.get("metadata", {}).get("langgraph_node", "")
 
+            # DEBUG: log all model-related events
+            if kind in ("on_chat_model_start", "on_chat_model_end", "on_chat_model_stream"):
+                if kind == "on_chat_model_stream":
+                    _chunk = event["data"].get("chunk")
+                    _content = getattr(_chunk, "content", None) if _chunk else None
+                    _tcc = getattr(_chunk, "tool_call_chunks", None) if _chunk else None
+                    logger.debug(
+                        "DBG stream node=%s is_final=%s content_type=%s content=%r tcc=%r",
+                        node, is_final_planner, type(_content).__name__,
+                        str(_content)[:120] if _content else _content, _tcc,
+                    )
+                else:
+                    logger.debug("DBG event=%s node=%s", kind, node)
+
             if kind == "on_chat_model_start" and node == "planner":
                 pending = ""
                 is_final_planner = True
@@ -176,7 +191,9 @@ async def run_agent(
 
             elif kind == "on_chat_model_stream" and node == "planner" and is_final_planner:
                 chunk = event["data"].get("chunk")
-                if not chunk or getattr(chunk, "tool_call_chunks", None):
+                if not chunk:
+                    continue
+                if getattr(chunk, "tool_call_chunks", None):
                     is_final_planner = False
                     pending = ""
                     continue
@@ -207,6 +224,22 @@ async def run_agent(
                     )
                     last_edit_time = now
                     last_edit_len = len(accumulated)
+
+            elif kind == "on_chat_model_end" and node == "planner" and is_final_planner:
+                # gemini-2.5-flash (thinking model) отдаёт пустые stream chunks,
+                # а реальный текст ответа — только в on_chat_model_end
+                if not accumulated:
+                    output = event["data"].get("output")
+                    if output:
+                        out_content = getattr(output, "content", None)
+                        if isinstance(out_content, str):
+                            accumulated = out_content
+                        elif isinstance(out_content, list):
+                            accumulated = "".join(
+                                p if isinstance(p, str) else p.get("text", "")
+                                for p in out_content
+                                if isinstance(p, (str, dict))
+                            )
 
     except Exception as exc:
         err_str = str(exc)

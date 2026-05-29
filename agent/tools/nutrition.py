@@ -552,3 +552,105 @@ async def get_food_info(food_name: str, weight_grams: Optional[int] = None) -> d
         data = {}
 
     return {**data, "food_name": food_name, "weight_grams": grams}
+
+
+@tool
+async def delete_log_entry(
+    telegram_user_id: int,
+    entry_type: str,
+    food_name: Optional[str] = None,
+    meal_type: Optional[str] = None,
+) -> str:
+    """Удалить запись из дневника питания или тренировок.
+
+    Использовать когда пользователь говорит: «убери последний приём пищи»,
+    «удали последнюю тренировку», «вычеркни банан», «удали обед», «убери завтрак».
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        entry_type: Тип записи — «food» (еда) или «workout» (тренировка).
+        food_name: Название продукта/блюда (если пользователь указал конкретное,
+                   например «банан», «сэндвич»). None = последняя запись.
+        meal_type: Тип приёма пищи: breakfast / lunch / dinner / snack.
+                   None = не фильтровать по типу.
+    """
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return "Пользователь не найден."
+
+    client = await get_client()
+
+    if entry_type == "workout":
+        result = (
+            await client.table("workout_logs")
+            .select("id, notes, completed_at")
+            .eq("user_id", user_id)
+            .order("completed_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not result.data:
+            return "Нет записанных тренировок для удаления."
+
+        row = result.data[0]
+        await client.table("workout_logs").delete().eq("id", row["id"]).execute()
+
+        dt = datetime.fromisoformat(row["completed_at"].replace("Z", "+00:00"))
+        date_str = dt.astimezone().strftime("%-d %b %H:%M")
+        label = row.get("notes") or "Тренировка"
+        short = label[:40] + ("..." if len(label) > 40 else "")
+        return f"✅ Удалено: {short} ({date_str})"
+
+    # entry_type == "food"
+    query = (
+        client.table("food_logs")
+        .select("id, food_name, calories, meal_type, logged_at")
+        .eq("user_id", user_id)
+    )
+    if meal_type:
+        query = query.eq("meal_type", meal_type)
+
+    if food_name:
+        # Ищем по названию: сначала точное совпадение, потом частичное
+        exact = await (
+            query.ilike("food_name", food_name)
+            .order("logged_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if exact.data:
+            rows = exact.data
+        else:
+            partial = await (
+                query.ilike("food_name", f"%{food_name}%")
+                .order("logged_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            rows = partial.data or []
+    else:
+        last = await (
+            query.order("logged_at", desc=True).limit(1).execute()
+        )
+        rows = last.data or []
+
+    if not rows:
+        hint = f" «{food_name}»" if food_name else ""
+        return f"Запись{hint} не найдена."
+
+    row = rows[0]
+    await client.table("food_logs").delete().eq("id", row["id"]).execute()
+
+    # Пересчитываем итог дня после удаления
+    summary = await get_daily_nutrition_summary.ainvoke({"telegram_user_id": telegram_user_id})
+    consumed = summary.get("consumed", {})
+
+    dt = datetime.fromisoformat(row["logged_at"].replace("Z", "+00:00"))
+    date_str = dt.astimezone().strftime("%-d %b %H:%M")
+    return (
+        f"✅ Удалено: {row['food_name']} — {row['calories']} ккал ({date_str})\n"
+        f"За сегодня: {consumed.get('calories', 0)} ккал / "
+        f"Б {consumed.get('protein', 0)}г / "
+        f"Ж {consumed.get('fat', 0)}г / "
+        f"У {consumed.get('carbs', 0)}г"
+    )
