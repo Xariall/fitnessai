@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from langchain_core.messages import SystemMessage
@@ -73,7 +74,26 @@ async def planner(state: AgentState, tools: list) -> AgentState:
 
     system_message = SystemMessage(content=system_content)
     messages = [system_message] + state["messages"]
-    response = await llm_with_tools.ainvoke(messages)
+
+    last_exc = None
+    for attempt in range(3):
+        try:
+            response = await llm_with_tools.ainvoke(messages)
+            break
+        except Exception as exc:
+            last_exc = exc
+            is_retryable = "503" in str(exc) or "unavailable" in str(exc).lower()
+            if is_retryable and attempt < 2:
+                delay = 3 * (attempt + 1)
+                logger.warning(
+                    "planner: Gemini 503, retry %d in %ds for user %s",
+                    attempt + 1, delay, state["telegram_user_id"],
+                )
+                await asyncio.sleep(delay)
+            else:
+                raise
+    else:
+        raise last_exc
 
     # Гарантируем правильный telegram_user_id во всех tool calls —
     # модель иногда галлюцинирует placeholder-значения (напр. 123456789).

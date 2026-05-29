@@ -212,9 +212,13 @@ async def run_agent(
         err_str = str(exc)
         is_quota = "429" in err_str or "ResourceExhausted" in type(exc).__name__ or "quota" in err_str.lower()
         is_no_tools = "does not support tools" in err_str
+        is_unavailable = "503" in err_str or "unavailable" in err_str.lower()
         if is_no_tools:
             logger.error("Model does not support tools: %s", err_str)
             user_msg = "Что-то пошло не так. Попробуй снова через секунду."
+        elif is_unavailable:
+            logger.warning("Gemini 503 for user %s: %s", telegram_user_id, err_str)
+            user_msg = "⚠️ AI-сервис временно перегружен. Попробуй через 10–30 секунд."
         elif is_quota:
             if "PerDay" in err_str or "per_day" in err_str.lower():
                 user_msg = "⚠️ Дневной лимит AI-запросов исчерпан. Попробуй завтра или подключи платный тариф в Google AI Studio."
