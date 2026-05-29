@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import re
 import time
 from io import BytesIO
 from typing import Optional
@@ -54,6 +55,7 @@ _TOOL_STATUS: dict[str, str] = {
     "calculate_hydration": "💧 Считаю норму воды...",
     "get_weekly_summary": "📊 Загружаю итог недели...",
     "delete_log_entry": "🗑 Удаляю запись...",
+    "generate_motivation_meme": "🎭 Создаю мем...",
 }
 
 
@@ -113,6 +115,7 @@ async def run_agent(
     if isinstance(source, CallbackQuery):
         telegram_user_id = source.from_user.id
         answer_fn = source.message.answer
+        answer_photo_fn = source.message.answer_photo
         bot = source.bot
         chat_id = source.message.chat.id
         # Remove the stale inline keyboard from the button message
@@ -121,6 +124,7 @@ async def run_agent(
     else:
         telegram_user_id = source.from_user.id
         answer_fn = source.answer
+        answer_photo_fn = source.answer_photo
         bot = source.bot
         chat_id = source.chat.id
 
@@ -266,14 +270,44 @@ async def run_agent(
     finally:
         typing_task.cancel()
 
+    # Извлекаем URL мема из ответа агента (безопасно, независимо от позиции в тексте)
+    meme_url: str | None = None
+    match = re.search(r"MEME_IMAGE_URL:(https://\S+)", accumulated)
+    if match:
+        meme_url = match.group(1)
+        accumulated = accumulated.replace(match.group(0), "").strip()
+
     if not accumulated:
         await _safe_edit(placeholder, "Не удалось получить ответ. Попробуй ещё раз.")
         return None
 
-    try:
-        await placeholder.edit_text(accumulated, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
-    except TelegramBadRequest:
-        await placeholder.edit_text(accumulated, reply_markup=keyboard)
+    if meme_url:
+        # Отправляем фото с текстом как caption — одно сообщение вместо двух
+        with contextlib.suppress(Exception):
+            await placeholder.delete()
+        try:
+            await answer_photo_fn(
+                meme_url,
+                caption=accumulated,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard,
+            )
+        except TelegramBadRequest:
+            # Если Markdown в caption сломался — без форматирования
+            await answer_photo_fn(meme_url, caption=accumulated, reply_markup=keyboard)
+        except Exception:
+            logger.warning("Failed to send meme photo for user %s", telegram_user_id, exc_info=True)
+            # Fallback: текст отдельно
+            try:
+                await answer_photo_fn(meme_url)
+            except Exception:
+                pass
+            await answer_fn(accumulated, parse_mode=ParseMode.MARKDOWN)
+    else:
+        try:
+            await placeholder.edit_text(accumulated, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+        except TelegramBadRequest:
+            await placeholder.edit_text(accumulated, reply_markup=keyboard)
 
     return accumulated
 

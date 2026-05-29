@@ -10,7 +10,7 @@ from langgraph.prebuilt import ToolNode
 
 from agent.nodes import load_profile, planner, responder
 from agent.state import AgentState
-from agent.tools.motivation import send_motivation
+from agent.tools.motivation import generate_motivation_meme, send_motivation
 from agent.tools.nutrition import (
     calculate_daily_calories,
     calculate_hydration,
@@ -77,6 +77,7 @@ TOOLS = [
     get_weekly_summary,
     # motivation
     send_motivation,
+    generate_motivation_meme,
 ]
 
 _CHECKPOINT_FILE = Path(__file__).parent.parent / "data" / "checkpoints.pkl"

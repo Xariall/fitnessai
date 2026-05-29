@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     thinking_budget: int = 8000  # токены на размышление после tool calls (0 = отключено)
 
+    imgflip_username: str = ""
+    imgflip_password: str = ""
+
     # 0 = безлимитно; >0 = максимум запросов к агенту в сутки на пользователя
     max_requests_per_day: int = 0
 
