@@ -1,11 +1,11 @@
 import asyncio
 import logging
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, ToolMessage
 
 from agent.prompts.system import SYSTEM_PROMPT
 from agent.state import AgentState
-from llm.provider import get_llm
+from llm.provider import get_llm, get_llm_thinking
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,10 @@ async def planner(state: AgentState, tools: list) -> AgentState:
     """Узел: планировщик — вызывает LLM с системным промптом и инструментами."""
     from agent.chat_modes import get_mode
 
-    llm = get_llm()
+    # С thinking только когда уже есть результаты инструментов — синтез требует рассуждений.
+    # Для первичного планирования и базовых запросов thinking отключён — быстрее.
+    has_tool_results = any(isinstance(m, ToolMessage) for m in state["messages"])
+    llm = get_llm_thinking() if has_tool_results else get_llm()
     llm_with_tools = llm.bind_tools(tools)
 
     profile = state["user_profile"]

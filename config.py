@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
+    thinking_budget: int = 8000  # токены на размышление после tool calls (0 = отключено)
 
     # 0 = безлимитно; >0 = максимум запросов к агенту в сутки на пользователя
     max_requests_per_day: int = 0
