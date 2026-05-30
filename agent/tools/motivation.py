@@ -1,4 +1,5 @@
 import logging
+import random
 
 import httpx
 from langchain_core.tools import tool
@@ -66,14 +67,33 @@ async def send_motivation(telegram_user_id: int) -> str:
         return "Ты уже сделал шаг вперёд, придя сюда. Продолжай — у тебя всё получится! 💪"
 
 
-# Доступные шаблоны ImgFlip для мотивационных мемов
-_MEME_TEMPLATES = {
-    "181913649": "Drake Hotline Bling",     # X плохо / Y хорошо — универсальный
-    "101288": "Success Kid",                 # маленькая победа
-    "87743020": "Two Buttons",              # выбор между ленью и действием
-    "61579": "One Does Not Simply",         # преувеличение трудности
-    "14371066": "Most Interesting Man",     # "я не всегда тренируюсь, но когда..."
-}
+# Кэш шаблонов ImgFlip — загружается один раз при первом вызове
+_meme_template_ids: list[str] = []
+
+
+async def _get_meme_template_ids() -> list[str]:
+    """Загружает все доступные шаблоны с ImgFlip API и кэширует их."""
+    global _meme_template_ids
+    if _meme_template_ids:
+        return _meme_template_ids
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get("https://api.imgflip.com/get_memes")
+        data = resp.json()
+        if data.get("success"):
+            _meme_template_ids = [m["id"] for m in data["data"]["memes"]]
+            logger.info("ImgFlip: loaded %d meme templates", len(_meme_template_ids))
+        else:
+            logger.warning("ImgFlip get_memes failed: %s", data)
+    except Exception:
+        logger.exception("Failed to fetch ImgFlip meme templates")
+
+    # Fallback если API недоступен
+    if not _meme_template_ids:
+        _meme_template_ids = ["181913649", "101288", "87743020", "61579", "14371066"]
+
+    return _meme_template_ids
 
 
 @tool
@@ -81,16 +101,8 @@ async def generate_motivation_meme(
     telegram_user_id: int,
     top_text: str,
     bottom_text: str,
-    template_id: str = "181913649",
 ) -> str:
     """Сгенерировать мотивационный мем через ImgFlip API.
-
-    Доступные template_id:
-    - "181913649" — Drake Hotline Bling (X плохо / Y хорошо, универсальный)
-    - "101288"    — Success Kid (маленькая победа)
-    - "87743020"  — Two Buttons (выбор между ленью и действием)
-    - "61579"     — One Does Not Simply (преувеличение трудности)
-    - "14371066"  — Most Interesting Man
 
     top_text: текст вверху мема (≤ 40 символов, русский, что пользователь избегает)
     bottom_text: текст внизу мема (≤ 40 символов, русский, что он делает правильно)
@@ -101,12 +113,16 @@ async def generate_motivation_meme(
         logger.info("ImgFlip credentials not configured — skipping meme generation")
         return "MEME_UNAVAILABLE"
 
+    template_ids = await _get_meme_template_ids()
+    chosen_template = random.choice(template_ids)
+    logger.info("Meme template chosen: %s for user %s", chosen_template, telegram_user_id)
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
                 "https://api.imgflip.com/caption_image",
                 data={
-                    "template_id": template_id,
+                    "template_id": chosen_template,
                     "username": settings.imgflip_username,
                     "password": settings.imgflip_password,
                     "text0": top_text[:100],
