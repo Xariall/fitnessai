@@ -18,6 +18,8 @@ class Exercise:
     description: str
     difficulty: str
     is_compound: bool
+    uses_bodyweight: bool
+    technique_cues: tuple[str, ...]
 
 
 def _load() -> tuple[Exercise, ...]:
@@ -33,6 +35,8 @@ def _load() -> tuple[Exercise, ...]:
             description=ex.get("description") or ex["name"],
             difficulty=ex.get("difficulty") or "beginner",
             is_compound=bool(ex.get("is_compound")),
+            uses_bodyweight=bool(ex.get("uses_bodyweight")),
+            technique_cues=tuple(ex.get("technique_cues") or []),
         )
         for ex in raw
     )

@@ -29,6 +29,7 @@ from agent.tools.workouts import (
     check_recovery_status,
     create_training_cycle,
     find_exercises,
+    generate_weekly_debrief,
     generate_workout_plan,
     get_active_cycle,
     get_cycle_by_id,
@@ -65,6 +66,7 @@ TOOLS = [
     get_cycle_by_id,
     update_user_injuries,
     adjust_cycle_schedule,
+    generate_weekly_debrief,
     # nutrition
     calculate_daily_calories,
     generate_nutrition_plan,

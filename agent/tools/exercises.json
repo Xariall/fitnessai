@@ -71,7 +71,12 @@
     ],
     "description": "Hold the Ab Roller with both hands and kneel on the floor.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Из колен для начинающих",
+      "Спина круглая (не прогибай)",
+      "Контроль на всей амплитуде"
+    ]
   },
   {
     "name": "Adductor",
@@ -699,7 +704,8 @@
     ],
     "description": "Choke the band around the center of the pullup bar. You can use different bands to provide varying levels of assistance.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Band Good Morning",
@@ -861,7 +867,12 @@
     ],
     "description": "Lie back on a flat bench. Using a medium width grip (a grip that creates a 90-degree angle in the middle of the movement...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Гриф в основание ладони",
+      "Локти 45°",
+      "Касание груди, контролируемый спуск"
+    ]
   },
   {
     "name": "Barbell Curl",
@@ -881,7 +892,12 @@
     ],
     "description": "Stand up with your torso upright while holding a barbell at a shoulder-width grip.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Локти прижаты",
+      "Без раскачки корпуса",
+      "Контролируемый негатив 2с"
+    ]
   },
   {
     "name": "Barbell Curls Lying Against An Incline",
@@ -921,7 +937,12 @@
     ],
     "description": "Stand in front of a loaded barbell.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Гриф над серединой стопы",
+      "Спина нейтральная",
+      "Тяни ногами, не спиной"
+    ]
   },
   {
     "name": "Barbell Full Squat",
@@ -1027,7 +1048,12 @@
     ],
     "description": "Begin seated on the ground with a bench directly behind you. Have a loaded barbell over your legs.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Лопатки на скамью",
+      "Пауза 1с наверху",
+      "Сжимай ягодицы, шея нейтральная"
+    ]
   },
   {
     "name": "Barbell Incline Bench Press - Medium Grip",
@@ -1090,7 +1116,12 @@
     ],
     "description": "This exercise is best performed inside a squat rack for safety purposes.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Колено до 1см от пола",
+      "Без отскока",
+      "Корпус вертикально"
+    ]
   },
   {
     "name": "Barbell Rear Delt Row",
@@ -1278,7 +1309,12 @@
     ],
     "description": "This exercise is best performed inside a squat rack for safety purposes.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Стопы шире плеч, носки врозь",
+      "Колени по направлению стоп",
+      "Бёдра до параллели"
+    ]
   },
   {
     "name": "Barbell Squat To A Bench",
@@ -1382,7 +1418,8 @@
     ],
     "description": "Wearing either a harness or a loose weight belt, attach the chain to the back so that you will be facing away from the s...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Behind Head Chest Stretch",
@@ -1422,7 +1459,8 @@
     ],
     "description": "For this exercise you will need to place a bench behind your back.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Bench Jump",
@@ -1614,7 +1652,12 @@
     ],
     "description": "Holding a barbell with a pronated grip (palms facing down), bend your knees slightly and bring your torso forward, by be...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Торс 30-45°",
+      "Спина прямая",
+      "Тяни к пупку"
+    ]
   },
   {
     "name": "Bent Over Dumbbell Rear Delt Raise With Head On Bench",
@@ -1918,7 +1961,8 @@
     ],
     "description": "Stand with your feet shoulder width apart. You can place your hands behind your head.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Bodyweight Walking Lunge",
@@ -1938,7 +1982,8 @@
     ],
     "description": "Begin standing with your feet shoulder width apart and your hands on your hips.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Bosu Ball Cable Crunch With Side Bends",
@@ -2015,7 +2060,8 @@
     ],
     "description": "Assume a relaxed stance facing the box or platform approximately an arm's length away.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Box Skip",
@@ -2234,7 +2280,12 @@
     ],
     "description": "To get yourself into the starting position, place the pulleys on a high position (above your head), select the resistanc...",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Корпус слегка наклонён",
+      "Руки своди перед грудью",
+      "Контроль на обратном ходе"
+    ]
   },
   {
     "name": "Cable Crunch",
@@ -2251,7 +2302,12 @@
     ],
     "description": "Kneel below a high pulley that contains a rope attachment.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Таз неподвижен",
+      "Скручивание рёбер к тазу",
+      "Без тяги руками"
+    ]
   },
   {
     "name": "Cable Deadlifts",
@@ -3166,7 +3222,13 @@
     ],
     "description": "Grab the pull-up bar with the palms facing your torso and a grip closer than the shoulder width.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true,
+    "technique_cues": [
+      "Хват обратный на ширине плеч",
+      "Тяни подбородок к перекладине",
+      "Контроль на спуске"
+    ]
   },
   {
     "name": "Chin To Chest Stretch",
@@ -3323,7 +3385,12 @@
     ],
     "description": "With a barbell on the floor close to the shins, take an overhand or hook grip just outside the legs.",
     "difficulty": "advanced",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Тройное разгибание",
+      "Подсед под штангу",
+      "Фиксация над головой"
+    ]
   },
   {
     "name": "Clean and Press",
@@ -3391,7 +3458,8 @@
     ],
     "description": "Move into a prone position on the floor, supporting your weight on your hands and toes.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Close-Grip Barbell Bench Press",
@@ -3412,7 +3480,12 @@
     ],
     "description": "Lie back on a flat bench. Using a close grip (around shoulder width), lift the bar from the rack and hold it straight ov...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Хват на ширине плеч",
+      "Локти вдоль тела",
+      "Гриф к нижней части груди"
+    ]
   },
   {
     "name": "Close-Grip Dumbbell Press",
@@ -3537,7 +3610,8 @@
     ],
     "description": "Lie on the floor and place your hands on an upright dumbbell.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Close-Grip Standing Barbell Curl",
@@ -3617,7 +3691,12 @@
     ],
     "description": "Sit down on a flat bench with one dumbbell in front of you between your legs.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Локоть упирается во внутреннюю часть бедра",
+      "Пиковое сокращение 1с",
+      "Без рывков"
+    ]
   },
   {
     "name": "Cross-Body Crunch",
@@ -3923,7 +4002,12 @@
     ],
     "description": "Secure your legs at the end of the decline bench and lie down.",
     "difficulty": "intermediate",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Руки за головой, не тяни шею",
+      "Скручивание рёбер к тазу",
+      "Без рывков"
+    ]
   },
   {
     "name": "Decline Dumbbell Bench Press",
@@ -3944,7 +4028,12 @@
     ],
     "description": "Secure your legs at the end of the decline bench and lie down with a dumbbell on each hand on top of your thighs.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Скамья −15°",
+      "Локти 45°",
+      "Акцент на нижнюю часть груди"
+    ]
   },
   {
     "name": "Decline Dumbbell Flyes",
@@ -4035,7 +4124,8 @@
     ],
     "description": "Lie on the floor face down and place your hands about 36 inches apart while holding your torso up at arms length.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Decline Reverse Crunch",
@@ -4156,7 +4246,8 @@
     ],
     "description": "For this exercise you will need access to parallel bars.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Dips - Triceps Version",
@@ -4176,7 +4267,13 @@
     ],
     "description": "To get into the starting position, hold your body at arm's length with your arms nearly locked above the bars.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true,
+    "technique_cues": [
+      "Корпус вертикально",
+      "Локти назад",
+      "Опускание до 90° в локтях"
+    ]
   },
   {
     "name": "Donkey Calf Raises",
@@ -4317,7 +4414,8 @@
     ],
     "description": "Begin standing with your knees slightly bent.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Downward Facing Balance",
@@ -4418,7 +4516,12 @@
     ],
     "description": "Lie down on a flat bench with a dumbbell in each hand resting on top of your thighs.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Гантели на уровне груди",
+      "Локти 45°",
+      "Полная амплитуда"
+    ]
   },
   {
     "name": "Dumbbell Bench Press with Neutral Grip",
@@ -4458,7 +4561,12 @@
     ],
     "description": "Stand up straight with a dumbbell in each hand at arm's length.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Супинация в верхней точке",
+      "Локти прижаты",
+      "Полная амплитуда"
+    ]
   },
   {
     "name": "Dumbbell Clean",
@@ -4520,7 +4628,12 @@
     ],
     "description": "Lie down on a flat bench with a dumbbell on each hand resting on top of your thighs.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Лёгкий сгиб в локтях",
+      "Движение через обнимание",
+      "Не опускай ниже уровня плеч"
+    ]
   },
   {
     "name": "Dumbbell Incline Row",
@@ -4580,7 +4693,12 @@
     ],
     "description": "Stand with your torso upright holding two dumbbells in your hands by your sides. This will be your starting position.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Колено до 1см от пола",
+      "Корпус вертикально",
+      "Шаг средней длины"
+    ]
   },
   {
     "name": "Dumbbell Lying One-Arm Rear Lateral Raise",
@@ -4842,7 +4960,12 @@
     ],
     "description": "While holding a dumbbell in each hand, sit on a military press bench or utility bench that has back support.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Скамья 90° с упором",
+      "Без прогиба в пояснице",
+      "Опускай до уровня ушей"
+    ]
   },
   {
     "name": "Dumbbell Shrug",
@@ -5013,7 +5136,12 @@
     ],
     "description": "Stand up straight while holding an EZ curl bar at the wide outer handle.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Локти неподвижны",
+      "Пауза 1с наверху",
+      "Без свинга"
+    ]
   },
   {
     "name": "EZ-Bar Skullcrusher",
@@ -5276,7 +5404,12 @@
     ],
     "description": "Facing a high pulley with a rope or dual handles attached, pull the weight directly towards your face, separating your h...",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Верёвочная рукоять на верхнем блоке",
+      "Тяни к лицу",
+      "Разведи в стороны в конце"
+    ]
   },
   {
     "name": "Farmer's Walk",
@@ -5489,7 +5622,8 @@
     ],
     "description": "On a flat bench lie facedown with the hips on the edge of the bench, the legs straight with toes high off the floor and ...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Foot-SMR",
@@ -5571,7 +5705,8 @@
     ],
     "description": "Cross your arms over your chest.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Frog Hops",
@@ -5671,7 +5806,8 @@
     ],
     "description": "Begin with a box of an appropriate height 1-2 feet in front of you. Stand with your feet should width apart.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Front Cable Raise",
@@ -5725,7 +5861,12 @@
     ],
     "description": "Pick a couple of dumbbells and stand with a straight torso and the dumbbells on front of your thighs at arms length with...",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Хват нейтральный или пронированный",
+      "Подъём до уровня глаз",
+      "Без маха корпусом"
+    ]
   },
   {
     "name": "Front Incline Dumbbell Raise",
@@ -6090,7 +6231,12 @@
     ],
     "description": "Place the back of your torso against the back pad of the machine and hook your shoulders under the shoulder pads provide...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Спина прижата к подушке",
+      "Параллельные бёдра",
+      "Темп 3с вниз"
+    ]
   },
   {
     "name": "Hammer Curls",
@@ -6107,7 +6253,12 @@
     ],
     "description": "Stand up with your torso upright and a dumbbell on each hand being held at arms length.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Нейтральный хват",
+      "Локти неподвижны",
+      "Контроль на спуске"
+    ]
   },
   {
     "name": "Hammer Grip Incline DB Bench Press",
@@ -6185,7 +6336,8 @@
     ],
     "description": "With your back to the wall bend at the waist and place both hands on the floor at shoulder width.",
     "difficulty": "advanced",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Hang Clean",
@@ -6326,7 +6478,12 @@
     ],
     "description": "Hang from a chin-up bar with both arms extended at arms length in top of you using either a wide grip or a medium grip.",
     "difficulty": "advanced",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Контроль 2с на спуске",
+      "Без раскачки",
+      "Подъём до параллели или выше"
+    ]
   },
   {
     "name": "Hanging Pike",
@@ -6561,7 +6718,12 @@
     ],
     "description": "Lie face down on a hyperextension bench, tucking your ankles securely under the footpads.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Руки за головой или на груди",
+      "Подъём до линии тела",
+      "Без гиперразгибания"
+    ]
   },
   {
     "name": "Hyperextensions With No Hyperextension Bench",
@@ -6818,7 +6980,12 @@
     ],
     "description": "Lie back on an incline bench with a dumbbell in each hand atop your thighs.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Скамья 30°",
+      "Темп 3-0-1-0",
+      "Без залома в пояснице"
+    ]
   },
   {
     "name": "Incline Hammer Curls",
@@ -6873,7 +7040,8 @@
     ],
     "description": "Stand facing bench or sturdy elevated platform.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Incline Push-Up Close-Grip",
@@ -6893,7 +7061,8 @@
     ],
     "description": "Stand facing a Smith machine bar or sturdy elevated platform at an appropriate height.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Incline Push-Up Depth Jump",
@@ -6914,7 +7083,8 @@
     ],
     "description": "For this drill you will need a box about 12 inches high, and two thick mats or aerobics steps.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Incline Push-Up Medium",
@@ -6936,7 +7106,8 @@
     ],
     "description": "Stand facing a Smith machine bar or sturdy elevated platform at an appropriate height.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Incline Push-Up Reverse Grip",
@@ -6958,7 +7129,8 @@
     ],
     "description": "Stand facing a Smith machine bar or sturdy elevated platform at an appropriate height.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Incline Push-Up Wide",
@@ -6980,7 +7152,8 @@
     ],
     "description": "Stand facing a Smith machine bar or sturdy elevated platform at an appropriate height.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Intermediate Groin Stretch",
@@ -7053,7 +7226,8 @@
     ],
     "description": "Position a bar in a rack to about waist height. You can also use a smith machine.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Inverted Row with Straps",
@@ -7073,7 +7247,8 @@
     ],
     "description": "Hang a rope or suspension straps from a rack or other stable object.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Iron Cross",
@@ -7684,7 +7859,8 @@
     ],
     "description": "Grip the rings using a false grip, with the base of your palms on top of the rings.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Knee Across The Body",
@@ -8025,7 +8201,8 @@
     ],
     "description": "Assume a comfortable standing position, with a short box positioned next to you. This will be your starting position.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Lateral Cone Hops",
@@ -8139,7 +8316,12 @@
     ],
     "description": "For this exercise you will need to use a leg extension machine.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Пауза 1с наверху",
+      "Стопы нейтрально",
+      "Контролируемый спуск"
+    ]
   },
   {
     "name": "Leg Lift",
@@ -8178,7 +8360,12 @@
     ],
     "description": "Using a leg press machine, sit down on the machine and place your legs on the platform directly in front of you at a med...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Стопы на ширине плеч",
+      "Спина прижата",
+      "Не блокируй колени наверху"
+    ]
   },
   {
     "name": "Leg Pull-In",
@@ -8874,7 +9061,12 @@
     ],
     "description": "Adjust the machine lever to fit your height and lie face down on the leg curl machine with the pad of the lever on the b...",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Пауза 1с в сокращении",
+      "Полная амплитуда",
+      "Бёдра прижаты к подушке"
+    ]
   },
   {
     "name": "Lying Machine Squat",
@@ -9001,7 +9193,12 @@
     ],
     "description": "Lie on a flat bench with either an e-z bar (my preference) or a straight bar placed on the floor behind your head and yo...",
     "difficulty": "intermediate",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Опускай ко лбу",
+      "Локти неподвижны",
+      "Контроль на негативе"
+    ]
   },
   {
     "name": "Machine Bench Press",
@@ -9250,7 +9447,8 @@
     ],
     "description": "Begin in a pushup position, with your weight supported by your hands and toes.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Moving Claw Series",
@@ -9320,7 +9518,8 @@
     ],
     "description": "Grip the rings using a false grip, with the base of your palms on top of the rings.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Narrow Stance Hack Squats",
@@ -9555,7 +9754,12 @@
     ],
     "description": "Choose a flat bench and place a dumbbell on each side of it.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Опора рукой о скамью",
+      "Тяни локоть вверх",
+      "Без вращения корпуса"
+    ]
   },
   {
     "name": "One-Arm Flat Bench Dumbbell Flye",
@@ -10032,7 +10236,8 @@
     ],
     "description": "For this exercise, start out by placing a towel around a chin up bar.",
     "difficulty": "advanced",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "One Arm Dumbbell Bench Press",
@@ -10535,7 +10740,8 @@
     ],
     "description": "Stand between a set of parallel bars. Place a hand on each bar, and then take a small jump to help you get into the star...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Pelvic Tilt Into Bridge",
@@ -10664,7 +10870,12 @@
     ],
     "description": "Get into a prone position on the floor, supporting your weight on your toes and your forearms.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Тело как доска",
+      "Ягодицы и пресс напряжены",
+      "Без провисания поясницы"
+    ]
   },
   {
     "name": "Plate Pinch",
@@ -10784,7 +10995,8 @@
     ],
     "description": "Move into a prone position on the floor, supporting your weight on your hands and toes.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Posterior Tibialis Stretch",
@@ -10915,7 +11127,12 @@
     ],
     "description": "Begin with a loaded barbell on the floor. The bar should be close to or touching the shins, and a wide grip should be ta...",
     "difficulty": "advanced",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Широкий хват",
+      "Взрывное разгибание бёдер",
+      "Приём в полуприсед"
+    ]
   },
   {
     "name": "Power Snatch from Blocks",
@@ -11105,7 +11322,13 @@
     ],
     "description": "Grab the pull-up bar with the palms facing forward using the prescribed grip.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true,
+    "technique_cues": [
+      "Хват чуть шире плеч",
+      "Тяни локтями вниз",
+      "Полная амплитуда без раскачки"
+    ]
   },
   {
     "name": "Push-Up Wide",
@@ -11127,7 +11350,8 @@
     ],
     "description": "With your hands wide apart, support your body on your toes and hands in a plank position.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Push-Ups - Close Triceps Position",
@@ -11147,7 +11371,8 @@
     ],
     "description": "Lie on the floor face down and place your hands closer than shoulder width for a close hand position.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Push-Ups With Feet Elevated",
@@ -11168,7 +11393,8 @@
     ],
     "description": "Lie on the floor face down and place your hands about 36 inches apart from each other holding your torso up at arms leng...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Push-Ups With Feet On An Exercise Ball",
@@ -11253,7 +11479,8 @@
     ],
     "description": "Get into pushup position on the toes with your hands just outside of shoulder width.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Pushups",
@@ -11274,7 +11501,13 @@
     ],
     "description": "Lie on the floor face down and place your hands about 36 inches apart while holding your torso up at arms length.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true,
+    "technique_cues": [
+      "Тело как планка",
+      "Локти 45°",
+      "Полная амплитуда до пола"
+    ]
   },
   {
     "name": "Pushups (Close and Wide Hand Positions)",
@@ -11295,7 +11528,8 @@
     ],
     "description": "Lie on the floor face down and body straight with your toes on the floor and the hands wider than shoulder width for a w...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Pyramid",
@@ -11698,7 +11932,12 @@
     ],
     "description": "To begin, lie down on an incline bench with the chest and stomach pressing against the incline.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Грудь на скамью или стоя в наклоне",
+      "Локти чуть согнуты",
+      "Сжатие 1с в пиковой точке"
+    ]
   },
   {
     "name": "Reverse Flyes With External Rotation",
@@ -11916,7 +12155,8 @@
     ],
     "description": "Grip a ring in each hand, and then take a small jump to help you get into the starting position with your arms locked ou...",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Rocket Jump",
@@ -11978,7 +12218,8 @@
     ],
     "description": "Grab the pull-up bar with the palms facing forward using a wide grip.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Romanian Deadlift",
@@ -12250,7 +12491,8 @@
     ],
     "description": "Take a pronated grip on a pull-up bar.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "uses_bodyweight": true
   },
   {
     "name": "Scissor Kick",
@@ -12436,7 +12678,12 @@
     ],
     "description": "For this exercise you will need access to a low pulley row machine with a V-bar.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Параллельные ручки",
+      "Тяни к нижней части груди",
+      "Сведи лопатки"
+    ]
   },
   {
     "name": "Seated Cable Shoulder Press",
@@ -12473,7 +12720,12 @@
     ],
     "description": "Sit on the machine and place your toes on the lower portion of the platform provided with the heels extending off.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Колени 90°",
+      "Солеус фокус",
+      "Темп 3-1-1-1"
+    ]
   },
   {
     "name": "Seated Calf Stretch",
@@ -13168,7 +13420,12 @@
     ],
     "description": "Pick a couple of dumbbells and stand with a straight torso and the dumbbells by your side at arms length with the palms ...",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Лёгкий сгиб в локтях",
+      "Веди локтями",
+      "Не выше уровня плеч"
+    ]
   },
   {
     "name": "Side Laterals to Front Raise",
@@ -13385,7 +13642,8 @@
     ],
     "description": "Begin laying prone on the ground. Move yourself into a position supporting your weight on your toes and one arm.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Single-Cone Sprint Drill",
@@ -13543,7 +13801,8 @@
     ],
     "description": "Begin by standing on one leg, with the bent knee raised. This will be your start position.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Single Leg Glute Bridge",
@@ -14930,7 +15189,12 @@
     ],
     "description": "Adjust the padded lever of the calf raise machine to fit your height.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Полная амплитуда",
+      "Пауза 1с внизу (растяжка)",
+      "Подъём на носки максимально"
+    ]
   },
   {
     "name": "Standing Concentration Curl",
@@ -15306,7 +15570,12 @@
     ],
     "description": "Start by placing a barbell that is about chest high on a squat rack.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Стопы на ширине плеч",
+      "Корпус напряжён",
+      "Гриф по прямой над головой"
+    ]
   },
   {
     "name": "Standing Olympic Plate Hand Squeeze",
@@ -15610,7 +15879,8 @@
     ],
     "description": "Stand facing a box or bench of an appropriate height with your feet together. This will be your starting position.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Step Mill",
@@ -15905,7 +16175,8 @@
     ],
     "description": "To begin, lie straight and face down on the floor or exercise mat. Your arms should be fully extended in front of you.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Supine Chest Throw",
@@ -16009,7 +16280,8 @@
     ],
     "description": "Anchor your suspension straps securely to the top of a rack or other object.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Suspended Reverse Crunch",
@@ -16358,7 +16630,12 @@
     ],
     "description": "Attach a straight or angled bar to a high pulley and grab with an overhand grip (palms facing down) at shoulder width.",
     "difficulty": "beginner",
-    "is_compound": false
+    "is_compound": false,
+    "technique_cues": [
+      "Локти прижаты к бокам",
+      "Разведи верёвку внизу",
+      "95% разгибание"
+    ]
   },
   {
     "name": "Triceps Pushdown - Rope Attachment",
@@ -16607,7 +16884,12 @@
     ],
     "description": "Grasp a barbell with an overhand grip that is slightly less than shoulder width.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Узкий хват",
+      "Тяни локти вверх и в стороны",
+      "Не выше подбородка"
+    ]
   },
   {
     "name": "Upright Cable Row",
@@ -16713,7 +16995,8 @@
     ],
     "description": "Start by placing the middle of the V-bar in the middle of the pull-up bar (assuming that the pull-up station you are usi...",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Vertical Swing",
@@ -16812,7 +17095,8 @@
     ],
     "description": "For this exercise you will need to place a bench behind your back and another one in front of you.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Weighted Crunches",
@@ -16873,7 +17157,8 @@
     ],
     "description": "Attach a weight to a dip belt and secure it around your waist.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Weighted Sissy Squat",
@@ -17020,7 +17305,12 @@
     ],
     "description": "Sit down on a pull-down machine with a wide bar attached to the top pulley.",
     "difficulty": "beginner",
-    "is_compound": true
+    "is_compound": true,
+    "technique_cues": [
+      "Широкий хват",
+      "Тяни к ключицам",
+      "Лопатки свести в конце"
+    ]
   },
   {
     "name": "Wide-Grip Pulldown Behind The Neck",
@@ -17066,7 +17356,8 @@
     ],
     "description": "Grab the pull-up bar with the palms facing forward using a wide grip.",
     "difficulty": "intermediate",
-    "is_compound": true
+    "is_compound": true,
+    "uses_bodyweight": true
   },
   {
     "name": "Wide-Grip Standing Barbell Curl",
