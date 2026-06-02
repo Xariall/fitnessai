@@ -216,7 +216,10 @@ async def handle_submenu(callback: CallbackQuery) -> None:
         await callback.answer()
         return
     await callback.answer()
-    await run_agent(callback, prompt)
+    response = await run_agent(callback, prompt)
+    if response and "программа создана" in response.lower():
+        kb = await build_workout_keyboard(callback.from_user.id)
+        await callback.message.answer("💪 Готов к первой тренировке?", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("quick:"))

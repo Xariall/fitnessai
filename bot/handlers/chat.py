@@ -315,7 +315,12 @@ async def run_agent(
 
 async def _run_agent_streaming(message: Message, telegram_user_id: int, user_input: str) -> Optional[str]:
     """Backward-compat wrapper around run_agent for Message sources."""
-    return await run_agent(message, user_input)
+    from bot.helpers import build_workout_keyboard
+    response = await run_agent(message, user_input)
+    if response and "программа создана" in response.lower():
+        kb = await build_workout_keyboard(telegram_user_id)
+        await message.answer("💪 Готов к первой тренировке?", reply_markup=kb)
+    return response
 
 
 async def _transcribe_voice(audio_bytes: bytes) -> str:
