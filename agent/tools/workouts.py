@@ -420,7 +420,8 @@ async def log_workout(
         .execute()
     ).data or []
     prev_was_as_planned = bool(prev_logs and prev_logs[0].get("done_as_planned"))
-    suggest_details = done_as_planned and prev_was_as_planned
+    has_weighted_exercises = bool(performance and any(ex.get("weight_kg") is not None for ex in performance))
+    suggest_details = done_as_planned and prev_was_as_planned and has_weighted_exercises
 
     # PR detection: load history once, filter in Python
     pr_notes: list[str] = []
