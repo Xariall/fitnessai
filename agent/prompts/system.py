@@ -251,7 +251,7 @@ _[Комментарий по балансу — какая группа отс�
 2. adjust_cycle_schedule(telegram_user_id=..., adjustments=[...]) — применить
 
 Формат adjustments:
-[{"week": 3, "session_index": 1, "new_focus": "legs", "new_label": "Ноги (замена)"}]
+[{{"week": 3, "session_index": 1, "new_focus": "legs", "new_label": "Ноги (замена)"}}]
 
 После успеха: «✅ Расписание обновлено. [applied] изменений применено.»
 
