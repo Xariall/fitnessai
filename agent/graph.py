@@ -25,6 +25,7 @@ from agent.tools.nutrition import (
 from agent.tools.profile import get_user_profile, update_user_profile
 from agent.tools.progress import get_progress_summary, get_weekly_summary, log_progress
 from agent.tools.workouts import (
+    adjust_cycle_schedule,
     check_recovery_status,
     create_training_cycle,
     find_exercises,
@@ -36,6 +37,7 @@ from agent.tools.workouts import (
     get_next_session_plan,
     get_recovery_overview,
     get_training_roadmap,
+    get_weekly_volume,
     get_workout_history,
     log_workout,
     update_user_injuries,
@@ -52,6 +54,7 @@ TOOLS = [
     get_workout_history,
     get_exercise_history,
     get_training_roadmap,
+    get_weekly_volume,
     find_exercises,
     check_recovery_status,
     get_recovery_overview,
@@ -61,6 +64,7 @@ TOOLS = [
     get_cycle_summary,
     get_cycle_by_id,
     update_user_injuries,
+    adjust_cycle_schedule,
     # nutrition
     calculate_daily_calories,
     generate_nutrition_plan,

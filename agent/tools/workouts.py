@@ -37,6 +37,25 @@ def _normalize_key(name: str) -> str:
     return s
 
 
+def _calc_1rm(weight: float, reps: int) -> float:
+    """Формула Эпли: оценка 1RM по рабочему весу и повторениям."""
+    if reps <= 0 or weight <= 0:
+        return 0.0
+    if reps == 1:
+        return weight
+    return round(weight * (1 + reps / 30), 1)
+
+
+def _ema(values: list[float], alpha: float = 0.4) -> list[float]:
+    """Экспоненциальное скользящее среднее (EMA) для сглаживания ряда."""
+    if not values:
+        return []
+    result = [values[0]]
+    for v in values[1:]:
+        result.append(alpha * v + (1 - alpha) * result[-1])
+    return result
+
+
 _MUSCLE_KEYWORDS: dict[str, list[str]] = {
     "chest": ["грудь", "жим", "chest", "отжимания", "грудных"],
     "back": ["спина", "тяга", "подтягивания", "back", "спины"],
@@ -484,39 +503,63 @@ async def log_workout(
             is_compound = db_ex.is_compound if db_ex else False
             equipment_set = db_ex.equipment if db_ex else frozenset()
 
+            ex_name = planned_ex.get("name", "")
             if equipment_set <= _NO_WEIGHT_EQUIPMENT or weight is None:
                 # Bodyweight: suggest more reps
                 if reps_done >= hi:
                     note = "↑ +2 повт."
                     next_reps = f"{lo + 2}-{hi + 2}"
+                    reasoning = (
+                        f"Ты сделал {reps_done} повт. (диапазон: {lo}–{hi}) → "
+                        f"достиг верхней границы → +2 повт. на следующей"
+                    )
                 else:
                     note = f"→ цель {reps_done + 1}+ повт."
                     next_reps = f"{lo}-{hi}"
+                    reasoning = (
+                        f"Ты сделал {reps_done} повт. (диапазон: {lo}–{hi}) → "
+                        f"в рабочем диапазоне → тот же вес, цель +1 повт."
+                    )
                 next_session.append({
-                    "name": planned_ex.get("name"),
+                    "name": ex_name,
                     "weight_kg": None,
                     "reps": next_reps,
                     "note": note,
+                    "reasoning": reasoning,
                 })
             else:
                 increment = _INCREMENT_COMPOUND if is_compound else _INCREMENT_ISOLATION
+                ex_type = "компаунд" if is_compound else "изоляция"
                 if reps_done >= hi:
                     next_weight = weight + increment
                     next_reps = f"{lo}-{hi}"
                     note = f"↑ +{increment}кг"
+                    reasoning = (
+                        f"Ты сделал {weight}кг × {reps_done} (диапазон: {lo}–{hi}) → "
+                        f"достиг верхней границы → {ex_type} +{increment}кг = {next_weight}кг"
+                    )
                 elif reps_done >= lo:
                     next_weight = weight
                     next_reps = f"{lo}-{hi}"
                     note = f"→ тот же вес, цель {reps_done + 1}+ повт."
+                    reasoning = (
+                        f"Ты сделал {weight}кг × {reps_done} (диапазон: {lo}–{hi}) → "
+                        f"в рабочем диапазоне → тот же вес, цель {reps_done + 1}+ повт."
+                    )
                 else:
                     next_weight = weight
                     next_reps = f"{lo}-{hi}"
                     note = f"⚠️ тот же вес, добери до {lo} повт."
+                    reasoning = (
+                        f"Ты сделал {weight}кг × {reps_done} (диапазон: {lo}–{hi}) → "
+                        f"не добрал до нижней границы → тот же вес"
+                    )
                 next_session.append({
-                    "name": planned_ex.get("name"),
+                    "name": ex_name,
                     "weight_kg": next_weight,
                     "reps": next_reps,
                     "note": note,
+                    "reasoning": reasoning,
                 })
 
     record: dict = {
@@ -1082,6 +1125,16 @@ async def get_training_roadmap(telegram_user_id: int) -> dict:
     from agent.tools.exercise_db import EXERCISE_DB
     ex_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
 
+    # Load user profile for bodyweight 1RM estimation
+    profile_result = (
+        await client.table("users")
+        .select("weight_kg")
+        .eq("telegram_user_id", telegram_user_id)
+        .single()
+        .execute()
+    )
+    bodyweight_kg: float | None = (profile_result.data or {}).get("weight_kg")
+
     # Aggregate per exercise key in chronological order (logs are desc, so reversed)
     key_data: dict[str, list[dict]] = {}
     for log in reversed(logs):
@@ -1095,6 +1148,9 @@ async def get_training_roadmap(telegram_user_id: int) -> dict:
                 "name": ex.get("name"),
                 "weight_kg": ex.get("weight_kg"),
                 "reps_done": ex.get("reps_done"),
+                "sets_done": ex.get("sets_done"),
+                "rir": ex.get("rir"),
+                "added_kg": ex.get("added_kg"),
             })
 
     exercises: dict = {}
@@ -1125,15 +1181,118 @@ async def get_training_roadmap(telegram_user_id: int) -> dict:
             increment = _INCREMENT_COMPOUND if is_compound else _INCREMENT_ISOLATION
             next_target = round(weights[-1] + increment, 2)
 
+        # ── 1RM + analytics ─────────────────────────────────────────────
+        one_rm_series: list[float] = []
+        rir_values: list[float] = []
+
+        for p in history_points:
+            w = p.get("weight_kg")
+            r = p.get("reps_done") or 0
+            added = p.get("added_kg")
+            rir = p.get("rir")
+
+            if rir is not None:
+                rir_values.append(float(rir))
+
+            effective_w: float | None = None
+            if w is not None and w > 0:
+                effective_w = w
+            elif added is not None and bodyweight_kg:
+                effective_w = bodyweight_kg + added  # оценка
+
+            if effective_w and r > 0:
+                one_rm_series.append(_calc_1rm(effective_w, r))
+
+        avg_rir: float | None = round(sum(rir_values) / len(rir_values), 1) if rir_values else None
+        estimated_1rm: float | None = round(one_rm_series[-1], 1) if one_rm_series else None
+        max_1rm: float | None = round(max(one_rm_series), 1) if one_rm_series else None
+
+        # Plateau detection
+        plateau_detected = False
+        underload_detected = False
+        sessions_since_progress = 0
+        trend_score: float | None = None
+        trend_label = "insufficient_data"
+
+        if one_rm_series:
+            max_idx = one_rm_series.index(max(one_rm_series))
+            sessions_since_progress = len(one_rm_series) - 1 - max_idx
+
+            weeks_since_progress = 0.0
+            if sessions_since_progress > 0:
+                try:
+                    last_progress_dt = datetime.fromisoformat(
+                        history_points[max_idx]["date"]
+                    )
+                    latest_dt = datetime.fromisoformat(history_points[-1]["date"])
+                    weeks_since_progress = (latest_dt - last_progress_dt).days / 7
+                except (ValueError, KeyError):
+                    pass
+
+            # Priority: underload first (avg_rir > 3 = not plateau, just too easy)
+            if avg_rir is not None and avg_rir > 3:
+                underload_detected = True
+            else:
+                plateau_detected = sessions_since_progress >= 5 or weeks_since_progress >= 3
+
+        # Trend score (requires ≥3 points for EMA)
+        if len(one_rm_series) >= 3:
+            smoothed = _ema(one_rm_series)
+            first_s, last_s = smoothed[0], smoothed[-1]
+            delta_pct = ((last_s - first_s) / first_s * 100) if first_s else 0.0
+
+            mid = len(history_points) // 2
+            first_sets = sum((p.get("sets_done") or 1) for p in history_points[:mid])
+            second_sets = sum((p.get("sets_done") or 1) for p in history_points[mid:])
+            vol_delta_pct = ((second_sets - first_sets) / first_sets * 100) if first_sets else 0.0
+
+            rir_modifier = 1.0
+            if avg_rir is not None:
+                rir_modifier = max(0.0, 1.0 - (avg_rir - 2) * 0.1)
+
+            trend_score = round((delta_pct * 0.7 + vol_delta_pct * 0.3) * rir_modifier, 2)
+
+        # trend_label (mutual exclusive, priority order)
+        if underload_detected:
+            trend_label = "underload"
+        elif plateau_detected:
+            trend_label = "plateau"
+        elif trend_score is not None:
+            if trend_score > 0:
+                trend_label = "up"
+            elif trend_score < 0:
+                trend_label = "down"
+            else:
+                trend_label = "stable"
+        elif len(one_rm_series) >= 2:
+            delta_simple = one_rm_series[-1] - one_rm_series[-2]
+            trend_label = "up" if delta_simple > 0 else ("down" if delta_simple < 0 else "stable")
+
         exercises[key] = {
             "display_name": display_name,
             "history": [
-                {"date": p["date"], "weight_kg": p.get("weight_kg"), "reps_done": p.get("reps_done")}
+                {
+                    "date": p["date"],
+                    "weight_kg": p.get("weight_kg"),
+                    "reps_done": p.get("reps_done"),
+                    "rir": p.get("rir"),
+                }
                 for p in history_points
             ],
             "trend": trend,
             "next_target": next_target,
             "sessions_count": len(history_points),
+            # 1RM analytics
+            "estimated_1rm": estimated_1rm,
+            "max_1rm": max_1rm,
+            "avg_rir": avg_rir,
+            # Progression state
+            "plateau_detected": plateau_detected,
+            "underload_detected": underload_detected,
+            "sessions_since_progress": sessions_since_progress,
+            # Trend
+            "trend_score": trend_score,
+            "trend_label": trend_label,
         }
 
     return {"exercises": exercises, "total_sessions": len(logs)}
@@ -1521,3 +1680,182 @@ async def find_exercises(muscle_group: str, equipment: Optional[str] = None) -> 
         }
         for ex in results
     ]
+
+
+@tool
+async def get_weekly_volume(telegram_user_id: int, weeks_back: int = 4) -> dict:
+    """Объём тренировок по группам мышц за последние N недель.
+
+    Показывает количество сетов и тоннаж (кг) по группам мышц в разрезе ISO-недель.
+    Помогает выявить мышцы с дефицитом нагрузки.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        weeks_back: За сколько недель считать (по умолчанию 4).
+    """
+    from agent.tools.exercise_db import EXERCISE_DB
+
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"weeks": [], "totals": {}, "error": "Пользователь не найден"}
+
+    client = await get_client()
+    since = (datetime.now(timezone.utc) - timedelta(weeks=weeks_back)).isoformat()
+
+    logs_result = (
+        await client.table("workout_logs")
+        .select("completed_at, performance")
+        .eq("user_id", user_id)
+        .gte("completed_at", since)
+        .order("completed_at")
+        .execute()
+    )
+    logs = logs_result.data or []
+
+    if not logs:
+        return {
+            "weeks": [],
+            "totals": {},
+            "message": f"Нет тренировок за последние {weeks_back} недели.",
+        }
+
+    # Build exercise → muscle_group map from EXERCISE_DB
+    ex_to_group = {_normalize_key(ex.name): ex.muscle_group for ex in EXERCISE_DB}
+
+    # Aggregate by ISO week and muscle group
+    # week_data: {iso_week: {group: {"sets": int, "volume_kg": float}}}
+    week_data: dict[str, dict[str, dict]] = {}
+    totals: dict[str, dict] = {}
+
+    for log in logs:
+        completed = log["completed_at"].replace("Z", "+00:00")
+        dt = datetime.fromisoformat(completed)
+        iso_week = dt.strftime("%G-W%V")  # e.g. "2026-W22"
+
+        if iso_week not in week_data:
+            week_data[iso_week] = {}
+
+        for ex in (log.get("performance") or []):
+            key = ex.get("key") or _normalize_key(ex.get("name", ""))
+            group = ex_to_group.get(key, "other")
+
+            sets = ex.get("sets_done") or 1
+            reps = ex.get("reps_done") or 0
+            weight = ex.get("weight_kg") or 0.0
+
+            if group not in week_data[iso_week]:
+                week_data[iso_week][group] = {"sets": 0, "volume_kg": 0.0}
+            week_data[iso_week][group]["sets"] += sets
+            week_data[iso_week][group]["volume_kg"] += round(sets * reps * weight, 1)
+
+            if group not in totals:
+                totals[group] = {"sets": 0, "volume_kg": 0.0}
+            totals[group]["sets"] += sets
+            totals[group]["volume_kg"] += round(sets * reps * weight, 1)
+
+    weeks_list = [
+        {"iso_week": w, "groups": data}
+        for w, data in sorted(week_data.items())
+    ]
+    return {"weeks": weeks_list, "totals": totals}
+
+
+@tool
+async def adjust_cycle_schedule(
+    telegram_user_id: int,
+    adjustments: list[dict],
+) -> dict:
+    """Применить корректировки к расписанию активного тренировочного цикла.
+
+    Меняет фокус и/или метку конкретных сессий в расписании.
+    Перед применением сохраняет предыдущую версию расписания в историю.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        adjustments: Список корректировок. Каждый элемент:
+            {"week": 3, "session_index": 1, "new_focus": "legs", "new_label": "Ноги (замена)"}
+            week — номер недели (1-based), session_index — индекс сессии в неделе (0-based).
+            new_focus и new_label — новые значения (оба опциональны, хотя бы одно должно быть).
+    """
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"status": "error", "message": "Пользователь не найден"}
+
+    client = await get_client()
+
+    # Load active cycle
+    cycle_row = (
+        await client.table("training_cycles")
+        .select("id, schedule, schedule_history")
+        .eq("user_id", user_id)
+        .eq("status", "active")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    ).data
+    if not cycle_row:
+        return {"status": "error", "message": "Нет активного тренировочного цикла"}
+
+    cycle = cycle_row[0]
+    cycle_id = cycle["id"]
+    schedule: dict = dict(cycle["schedule"])  # immutable copy
+    schedule_history: list = list(cycle.get("schedule_history") or [])
+
+    # Save current schedule snapshot to history before modifying
+    schedule_history.append({
+        "snapshot_at": datetime.now(timezone.utc).isoformat(),
+        "schedule": schedule,
+    })
+
+    applied: list[dict] = []
+    errors: list[str] = []
+
+    weeks: list = schedule.get("weeks", [])
+    for adj in adjustments:
+        week_num = adj.get("week")
+        sess_idx = adj.get("session_index")
+        new_focus = adj.get("new_focus")
+        new_label = adj.get("new_label")
+
+        if week_num is None or sess_idx is None:
+            errors.append(f"Пропущены week или session_index в {adj}")
+            continue
+        if not new_focus and not new_label:
+            errors.append(f"Не указаны new_focus или new_label для week={week_num} idx={sess_idx}")
+            continue
+
+        try:
+            week_data = next(w for w in weeks if w.get("week_number") == week_num)
+            session = week_data["sessions"][sess_idx]
+        except (StopIteration, IndexError, KeyError, TypeError):
+            errors.append(f"Не найдена неделя {week_num} / сессия {sess_idx}")
+            continue
+
+        if new_focus:
+            session["focus"] = new_focus
+        if new_label:
+            session["label"] = new_label
+        applied.append({"week": week_num, "session_index": sess_idx, "new_focus": new_focus, "new_label": new_label})
+
+    if errors and not applied:
+        return {"status": "error", "errors": errors}
+
+    # Persist updated schedule and history
+    try:
+        await client.table("training_cycles").update({
+            "schedule": schedule,
+            "schedule_history": schedule_history,
+        }).eq("id", cycle_id).execute()
+    except Exception:
+        logger.exception("adjust_cycle_schedule: DB update failed for cycle %s", cycle_id)
+        return {"status": "error", "message": "Не удалось сохранить изменения в БД"}
+
+    return {
+        "status": "ok",
+        "applied": applied,
+        "errors": errors,
+        "message": (
+            f"Применено {len(applied)} корректировок. "
+            f"Предыдущее расписание сохранено в историю (всего {len(schedule_history)} снимков)."
+        ),
+    }
