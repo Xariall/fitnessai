@@ -18,6 +18,7 @@ from bot.handlers.direct import (
     show_today_summary,
     show_workout_history,
 )
+from bot.helpers import build_workout_keyboard
 from bot.keyboards.main import (
     cycle_complete_keyboard,
     no_active_cycle_keyboard,
@@ -44,10 +45,9 @@ _SUBMENU_AGENT_PROMPTS = {
         "задай 3 вопроса одним сообщением и жди ответа пользователя."
     ),
     "train_today": (
-        "Используй get_next_session_plan чтобы получить тренировку по активному циклу. "
-        "Если активного цикла нет — сначала покажи статус восстановления через get_recovery_overview, "
-        "затем явно скажи пользователю что у него нет программы тренировок и предложи создать: "
-        "напиши «создай программу» или нажми кнопку — я всё сделаю сам!"
+        "Используй get_next_session_plan чтобы получить следующую сессию по активному циклу. "
+        "Если активного цикла нет — только скажи пользователю что нет активной программы тренировок "
+        "и предложи создать. Не генерируй и не предлагай случайные тренировки без программы."
     ),
     "active_cycle": (
         "Используй get_active_cycle чтобы показать статус активной программы."
@@ -70,9 +70,8 @@ async def _strip_keyboard(callback: CallbackQuery) -> None:
 # ── Навигация ──────────────────────────────────────────────────────────────────
 
 _BACK_TARGETS = {
-    "workout":   ("🏋️ Тренировки", workout_submenu_keyboard),
-    "nutrition": ("🥗 Питание",     nutrition_submenu_keyboard),
-    "progress":  ("📊 Прогресс",    progress_submenu_keyboard),
+    "nutrition": ("🥗 Питание",  nutrition_submenu_keyboard),
+    "progress":  ("📊 Прогресс", progress_submenu_keyboard),
 }
 
 
@@ -81,6 +80,13 @@ async def handle_menu_home(callback: CallbackQuery) -> None:
     """Legacy: старые сообщения с кнопкой menu:home — убираем клавиатуру без нового сообщения."""
     await callback.answer("Главное меню открыто")
     await _strip_keyboard(callback)
+
+
+@router.callback_query(F.data == "back:workout")
+async def handle_back_workout(callback: CallbackQuery) -> None:
+    await callback.answer()
+    kb = await build_workout_keyboard(callback.from_user.id)
+    await callback.message.edit_text("🏋️ Тренировки", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("back:"))
@@ -180,6 +186,21 @@ async def handle_active_cycle(callback: CallbackQuery) -> None:
     if response and ("нет программы" in response.lower() or "no_active_cycle" in response.lower()
                      or "нет активн" in response.lower() or "программы нет" in response.lower()
                      or "напиши" in response.lower()):
+        await callback.message.answer(
+            "_Нажми кнопку — создам программу под тебя:_",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=no_active_cycle_keyboard(),
+        )
+
+
+@router.callback_query(F.data == "submenu:train_today")
+async def handle_train_today(callback: CallbackQuery) -> None:
+    """Показывает следующую сессию из цикла; если нет цикла — предлагает создать."""
+    await callback.answer()
+    prompt = _SUBMENU_AGENT_PROMPTS["train_today"]
+    response = await run_agent(callback, prompt)
+    if response and ("нет программы" in response.lower() or "нет активн" in response.lower()
+                     or "программы нет" in response.lower() or "создай программу" in response.lower()):
         await callback.message.answer(
             "_Нажми кнопку — создам программу под тебя:_",
             parse_mode=ParseMode.MARKDOWN,

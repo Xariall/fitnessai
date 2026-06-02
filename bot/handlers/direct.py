@@ -12,6 +12,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, Message
 
 from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
+from bot.helpers import build_workout_keyboard
 from bot.keyboards.main import (
     after_nutrition_keyboard,
     after_progress_keyboard,
@@ -392,7 +393,7 @@ class WeightFSM(StatesGroup):
 
 
 _MENU_SUBMENUS = {
-    "🏋️ Тренировка": ("🏋️ *Тренировки*", workout_submenu_keyboard),
+    "🏋️ Тренировка": "🏋️ *Тренировки*",
     "🥗 Питание": ("🥗 *Питание*", nutrition_submenu_keyboard),
     "📊 Прогресс": ("📊 *Прогресс*", progress_submenu_keyboard),
 }
@@ -404,7 +405,10 @@ async def weight_fsm_escape(message: Message, state: FSMContext) -> None:
     """Кнопки главного меню выходят из FSM без потери нажатия."""
     await state.clear()
     text = message.text or ""
-    if text in _MENU_SUBMENUS:
+    if text == "🏋️ Тренировка":
+        kb = await build_workout_keyboard(message.from_user.id)
+        await message.answer("🏋️ *Тренировки*", parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+    elif text in _MENU_SUBMENUS:
         title, kb_func = _MENU_SUBMENUS[text]
         await message.answer(title, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
     else:

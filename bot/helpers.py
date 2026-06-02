@@ -1,9 +1,43 @@
 """Shared bot helpers — no LLM, direct DB reads."""
 import logging
 
+from aiogram.types import InlineKeyboardMarkup
+
 from db.client import get_client
 
 logger = logging.getLogger(__name__)
+
+
+async def has_active_cycle(telegram_user_id: int) -> bool:
+    """Return True if the user has an active training cycle."""
+    client = await get_client()
+    rows = (
+        await client.table("users")
+        .select("id")
+        .eq("telegram_user_id", telegram_user_id)
+        .limit(1)
+        .execute()
+    ).data
+    if not rows:
+        return False
+    user_id = rows[0]["id"]
+    cycles = (
+        await client.table("training_cycles")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("status", "active")
+        .limit(1)
+        .execute()
+    ).data
+    return bool(cycles)
+
+
+async def build_workout_keyboard(telegram_user_id: int) -> InlineKeyboardMarkup:
+    """Return workout submenu keyboard — with 'Создать программу' if no active cycle."""
+    from bot.keyboards.main import workout_submenu_keyboard, workout_submenu_keyboard_with_create
+    if await has_active_cycle(telegram_user_id):
+        return workout_submenu_keyboard()
+    return workout_submenu_keyboard_with_create()
 
 
 async def get_cycle_banner(user_id: str) -> str | None:

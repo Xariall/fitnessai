@@ -13,6 +13,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup
 from langchain_core.messages import HumanMessage
 
 import agent.graph as _agent_graph_module
+from bot.helpers import build_workout_keyboard
 from bot.keyboards.main import (
     main_menu_keyboard,
     nutrition_submenu_keyboard,
@@ -360,7 +361,7 @@ def _build_input_with_context(message: Message, user_text: str) -> str:
 
 
 _MAIN_MENU_SUBMENUS = {
-    "🏋️ Тренировка": ("🏋️ *Тренировки*", workout_submenu_keyboard),
+    "🏋️ Тренировка": "🏋️ *Тренировки*",
     "🥗 Питание": ("🥗 *Питание*", nutrition_submenu_keyboard),
     "📊 Прогресс": ("📊 *Прогресс*", progress_submenu_keyboard),
 }
@@ -371,6 +372,10 @@ async def handle_main_menu_section(message: Message, is_registered: bool = False
     """Кнопки главного меню открывают соответствующие submenus."""
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
+        return
+    if message.text == "🏋️ Тренировка":
+        kb = await build_workout_keyboard(message.from_user.id)
+        await message.answer("🏋️ *Тренировки*", parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
         return
     text, kb_func = _MAIN_MENU_SUBMENUS[message.text]
     await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
