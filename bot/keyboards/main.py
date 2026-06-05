@@ -65,6 +65,23 @@ def cycle_complete_keyboard(cycle_id: str = "") -> InlineKeyboardMarkup:
     )
 
 
+def after_cycle_create_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📋 По программе", callback_data="submenu:train_today")],
+        ]
+    )
+
+
+def cycle_draft_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Создать эту программу", callback_data="cycle:confirm_draft")],
+            [InlineKeyboardButton(text="🔄 Другой вариант", callback_data="cycle:regenerate_draft")],
+        ]
+    )
+
+
 def nutrition_submenu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

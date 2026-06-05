@@ -549,12 +549,13 @@ async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
 
     if mode == "log_workout" and cycle_complete:
         from bot.keyboards.main import cycle_complete_keyboard
-        follow = await message.answer(
+        from bot.helpers import send_and_track
+        await send_and_track(
+            message,
             "_Выбери что делаем дальше:_",
-            parse_mode=ParseMode.MARKDOWN,
+            state,
             reply_markup=cycle_complete_keyboard(),
         )
-        await state.update_data(last_bot_msg_id=follow.message_id)
 
 
 @router.message(InputModeFSM.waiting_for_input)

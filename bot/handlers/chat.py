@@ -48,6 +48,7 @@ _TOOL_STATUS: dict[str, str] = {
     "update_user_profile": "✏️ Обновляю профиль...",
     "send_motivation": "💫 Готовлю мотивацию...",
     "check_recovery_status": "🔄 Проверяю восстановление...",
+    "generate_cycle_preview": "🗓 Генерирую черновик программы...",
     "create_training_cycle": "🗓 Создаю тренировочный цикл...",
     "get_active_cycle": "📅 Загружаю программу...",
     "get_next_session_plan": "💪 Готовлю тренировку по программе...",
@@ -347,13 +348,42 @@ async def _run_agent_streaming(
     """Wrapper around run_agent for Message sources with state tracking."""
     from bot.helpers import build_workout_keyboard
 
-    response = await run_agent(message, user_input, state=state)
+    draft_params: dict | None = None
 
-    if response and "программа создана" in response.lower():
-        kb = await build_workout_keyboard(telegram_user_id)
-        follow = await message.answer("💪 Готов к первой тренировке?", reply_markup=kb)
-        if state:
-            await state.update_data(last_bot_msg_id=follow.message_id)
+    def _on_tool_end(tool_name: str, output: Any) -> None:
+        nonlocal draft_params
+        if tool_name == "generate_cycle_preview":
+            if isinstance(output, dict) and output.get("status") == "draft_ready":
+                draft_params = {
+                    "weeks": output.get("weeks"),
+                    "sessions_per_week": output.get("sessions_per_week"),
+                    "training_type": output.get("training_type"),
+                    "equipment": output.get("equipment"),
+                    "goal": output.get("goal"),
+                    "has_active_cycle": output.get("has_active_cycle", False),
+                }
+
+    response = await run_agent(message, user_input, state=state, on_tool_end=_on_tool_end)
+
+    if draft_params is not None and state is not None:
+        await state.update_data(cycle_draft_params=draft_params)
+        from bot.keyboards.main import cycle_draft_keyboard
+        from bot.helpers import send_and_track
+        await send_and_track(
+            message,
+            "_Нажми кнопку чтобы подтвердить или попросить другой вариант:_",
+            state,
+            reply_markup=cycle_draft_keyboard(),
+        )
+    elif response and "программа создана" in response.lower():
+        from bot.keyboards.main import after_cycle_create_keyboard
+        from bot.helpers import send_and_track
+        await send_and_track(
+            message,
+            "Готов начать? Нажми кнопку:",
+            state,
+            reply_markup=after_cycle_create_keyboard(),
+        )
     return response
 
 

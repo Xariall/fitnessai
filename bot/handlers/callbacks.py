@@ -14,7 +14,7 @@ from bot.handlers.direct import (
     show_today_summary,
     show_workout_history,
 )
-from bot.helpers import build_workout_keyboard, clear_fsm_keep_nav, send_and_track
+from bot.helpers import clear_fsm_keep_nav, send_and_track
 from bot.keyboards.main import (
     cycle_complete_keyboard,
     no_active_cycle_keyboard,
@@ -205,9 +205,9 @@ async def handle_submenu(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     response = await run_agent(callback, prompt, state=state)
     if response and "программа создана" in response.lower():
-        kb = await build_workout_keyboard(callback.from_user.id)
-        follow = await callback.message.answer("💪 Готов к первой тренировке?", reply_markup=kb)
-        await state.update_data(last_bot_msg_id=follow.message_id)
+        from bot.keyboards.main import after_cycle_create_keyboard
+        from bot.helpers import send_and_track
+        await send_and_track(callback, "Готов начать? Нажми кнопку:", state, reply_markup=after_cycle_create_keyboard())
 
 
 @router.callback_query(F.data.startswith("quick:"))
@@ -278,6 +278,57 @@ async def handle_cycle_start_new(callback: CallbackQuery, state: FSMContext) -> 
             "Явно укажи что каждый можно изменить. "
             "После подтверждения создай новый цикл."
         )
+    await run_agent(callback, prompt, state=state)
+
+
+@router.callback_query(F.data == "cycle:confirm_draft")
+async def handle_cycle_confirm_draft(callback: CallbackQuery, state: FSMContext) -> None:
+    """Пользователь подтвердил создание программы — создаём с теми же параметрами."""
+    await callback.answer()
+    data = await state.get_data()
+    params = data.get("cycle_draft_params") or {}
+    if not params:
+        await callback.message.answer("Параметры программы не найдены. Попробуй создать ещё раз.")
+        return
+    weeks = params.get("weeks", 6)
+    sessions_per_week = params.get("sessions_per_week", 3)
+    training_type = params.get("training_type", "mixed")
+    equipment = params.get("equipment", "gym")
+    goal = params.get("goal", "gain_muscle")
+    force_part = " Если есть активный цикл — замени его (force_replace=True)." if params.get("has_active_cycle") else ""
+    prompt = (
+        f"Пользователь подтвердил создание программы. Вызови create_training_cycle с параметрами: "
+        f"goal={goal}, weeks={weeks}, sessions_per_week={sessions_per_week}, "
+        f"training_type={training_type}, equipment={equipment}, force_replace=False.{force_part}"
+    )
+    response = await run_agent(callback, prompt, state=state)
+    if response and "программа создана" in response.lower():
+        from bot.keyboards.main import after_cycle_create_keyboard
+        from bot.helpers import send_and_track
+        await send_and_track(callback, "Готов начать? Нажми кнопку:", state, reply_markup=after_cycle_create_keyboard())
+    await state.update_data(cycle_draft_params=None)
+
+
+@router.callback_query(F.data == "cycle:regenerate_draft")
+async def handle_cycle_regenerate_draft(callback: CallbackQuery, state: FSMContext) -> None:
+    """Пользователь хочет другой вариант программы."""
+    await callback.answer()
+    data = await state.get_data()
+    params = data.get("cycle_draft_params") or {}
+    if not params:
+        await callback.message.answer("Параметры программы не найдены. Попробуй создать ещё раз.")
+        return
+    weeks = params.get("weeks", 6)
+    sessions_per_week = params.get("sessions_per_week", 3)
+    training_type = params.get("training_type", "mixed")
+    equipment = params.get("equipment", "gym")
+    goal = params.get("goal", "gain_muscle")
+    prompt = (
+        f"Пересоздай черновик программы с теми же параметрами: "
+        f"goal={goal}, weeks={weeks}, sessions_per_week={sessions_per_week}, "
+        f"training_type={training_type}, equipment={equipment}. "
+        f"Вызови generate_cycle_preview с этими параметрами."
+    )
     await run_agent(callback, prompt, state=state)
 
 

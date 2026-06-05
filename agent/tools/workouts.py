@@ -1,7 +1,7 @@
 import logging
 import re as _re
 import unicodedata as _ud
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -14,6 +14,24 @@ logger = logging.getLogger(__name__)
 _INCREMENT_COMPOUND = 2.5
 _INCREMENT_ISOLATION = 1.25
 _NO_WEIGHT_EQUIPMENT = frozenset({"none"})
+
+# Rate limiting for cycle generation: max 3 per user per day (in-memory)
+_MAX_CYCLES_PER_DAY = 3
+_cycle_gen_counts: dict[tuple[int, str], int] = {}
+
+
+def _today_str() -> str:
+    return date.today().isoformat()
+
+
+def _cycle_gen_allowed(telegram_user_id: int) -> bool:
+    return _cycle_gen_counts.get((telegram_user_id, _today_str()), 0) < _MAX_CYCLES_PER_DAY
+
+
+def _cycle_gen_increment(telegram_user_id: int) -> int:
+    key = (telegram_user_id, _today_str())
+    _cycle_gen_counts[key] = _cycle_gen_counts.get(key, 0) + 1
+    return _cycle_gen_counts[key]
 
 
 def _parse_reps(reps) -> tuple[int, int]:
@@ -249,6 +267,18 @@ async def generate_workout_plan(
             plan["id"] = saved.data[0]["id"] if saved.data else None
         except Exception:
             logger.exception("Failed to save workout to DB for user %s", telegram_user_id)
+
+    # Estimate duration and calorie burn from exercise data
+    exercises = plan.get("exercises") or []
+    total_seconds = sum(
+        ex.get("sets", 3) * (30 + ex.get("rest_seconds", 90))
+        for ex in exercises
+    )
+    est_duration = round(10 + total_seconds / 60)  # +10 min warmup+cooldown
+    weight_kg = profile.get("weight_kg") or 75
+    est_calories = round(weight_kg * 0.0875 * est_duration)
+    plan["estimated_duration_min"] = est_duration
+    plan["estimated_calories"] = est_calories
 
     return plan
 
@@ -818,6 +848,198 @@ async def _get_active_cycle_data(user_id: str) -> dict | None:
 
 
 @tool
+async def generate_cycle_preview(
+    telegram_user_id: int,
+    goal: str,
+    weeks: int = 6,
+    sessions_per_week: int = 3,
+    training_type: Optional[str] = None,
+    equipment: Optional[str] = None,
+) -> dict:
+    """Сгенерировать ЧЕРНОВИК тренировочного цикла для предпросмотра.
+
+    Выполняет всю логику генерации (LLM + валидация), но НЕ сохраняет в базу данных.
+    Используй этот инструмент ПЕРЕД create_training_cycle — сначала покажи пользователю
+    план и дождись подтверждения, затем вызывай create_training_cycle.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        goal: Цель (gain_muscle / lose_weight / strength / endurance).
+        weeks: Количество недель (4–8).
+        sessions_per_week: Тренировок в неделю (2–5).
+        training_type: Стиль тренинга (strength / hypertrophy / functional / mixed).
+        equipment: Оборудование (gym / home_dumbbells / bodyweight).
+    """
+    import json
+    import re
+
+    from pydantic import ValidationError
+
+    from db.models import TrainingCycleSchedule
+    from llm.provider import get_llm
+
+    weeks = max(4, min(weeks, 8))
+    sessions_per_week = max(2, min(sessions_per_week, 5))
+
+    client = await get_client()
+
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"error": "Пользователь не найден"}
+
+    # Check for existing active cycle (informational only — draft never replaces)
+    existing = (
+        await client.table("training_cycles")
+        .select("id,title,current_week,total_weeks")
+        .eq("user_id", user_id)
+        .eq("status", "active")
+        .limit(1)
+        .execute()
+    ).data
+
+    profile_result = (
+        await client.table("users")
+        .select("*")
+        .eq("telegram_user_id", telegram_user_id)
+        .single()
+        .execute()
+    )
+    profile = profile_result.data or {}
+    injuries: list[str] = profile.get("injuries") or []
+
+    injuries_note = ""
+    if injuries:
+        from agent.tools.exercise_db import injury_label
+        listed = ", ".join(injury_label(i) for i in injuries)
+        injuries_note = f"ПРОТИВОПОКАЗАНИЯ: {listed}. Исключи фокусы с нагрузкой на эти зоны.\n"
+
+    training_type_note = f"Тип тренинга: {training_type}.\n" if training_type else ""
+    equipment_note = f"Оборудование: {equipment}.\n" if equipment else ""
+
+    from agent.prompts.system import CYCLE_PHASE_RULES
+
+    _GOAL_GUIDELINES = {
+        "gain_muscle": "Гипертрофия: 12–20 сетов/группа/нед, RIR 1–3, приоритет компаундам.",
+        "lose_weight": "Жиросжигание: 6–12 сетов/группа/нед (поддержание мышц), RIR 2–4.",
+        "strength": "Сила: 5–10 сетов/группа/нед, RIR 0–2, вес 80–90% 1RM.",
+        "endurance": "Выносливость: 8–15 сетов/группа/нед, RIR 2–3, повторения 12–20.",
+    }
+    goal_guideline = _GOAL_GUIDELINES.get(goal, "")
+
+    llm = get_llm()
+    prompt = (
+        f"{CYCLE_PHASE_RULES}\n\n"
+        f"---\n"
+        f"Составь расписание тренировочного цикла на {weeks} недель, {sessions_per_week} тренировки/нед.\n"
+        f"Профиль: вес {profile.get('weight_kg')} кг, цель: {goal}, "
+        f"активность: {profile.get('activity_level')}.\n"
+        f"{training_type_note}{equipment_note}{injuries_note}"
+        f"\nОриентиры: {goal_guideline}\n"
+        f"Правила:\n"
+        f"- Баланс push/pull/legs за неделю (не перегружай одну группу)\n"
+        f"- Компаунды первыми в каждой сессии, изоляция — в конце\n"
+        f"- Каждая группа мышц — минимум 2 раза в неделю для оптимального стимула\n\n"
+        f"Верни ТОЛЬКО JSON в этом формате (без пояснений):\n"
+        f'{{"title": "Силовой цикл {weeks} недель", '
+        f'"weeks": ['
+        f'{{"week_number": 1, "theme": "Накопление объёма", "phase": "accumulation", '
+        f'"sessions": ['
+        f'{{"session_index": 0, "focus": "chest", "label": "Грудь / Трицепс"}}, '
+        f'{{"session_index": 1, "focus": "legs", "label": "Ноги"}}, '
+        f'{{"session_index": 2, "focus": "back", "label": "Спина / Бицепс"}}'
+        f']}}'
+        f']}}'
+        f'\n\nВажно: у каждой недели должно быть ровно {sessions_per_week} сессий. '
+        f'Все {weeks} недель. Используй focus: chest/back/legs/shoulders/arms/core.'
+    )
+
+    parsed: dict = {}
+    for attempt in range(2):
+        try:
+            response = await llm.ainvoke(prompt)
+            raw = re.sub(r"```(?:json)?", "", response.content or "").strip()
+        except Exception:
+            logger.exception("LLM failed in generate_cycle_preview for user %s", telegram_user_id)
+            return {"error": "Не удалось создать черновик — ошибка LLM"}
+
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        try:
+            parsed = json.loads(match.group()) if match else {}
+        except json.JSONDecodeError:
+            if attempt == 1:
+                return {"error": "Не удалось разобрать ответ модели"}
+            continue
+
+        if not parsed or "weeks" not in parsed:
+            if attempt == 1:
+                return {"error": "Не удалось разобрать ответ модели"}
+            continue
+
+        try:
+            TrainingCycleSchedule.model_validate({"weeks": parsed["weeks"]})
+            break
+        except ValidationError as e:
+            logger.warning("preview schedule validation failed attempt %d: %s", attempt, e)
+            if attempt == 1:
+                return {"error": f"Не удалось сгенерировать корректное расписание: {e}"}
+            prompt += f"\n\nПредыдущий ответ не прошёл валидацию: {e}\nПопробуй ещё раз строго по формату."
+
+    title = parsed.get("title") or f"Цикл {weeks} нед."
+
+    # Format compact preview grouped by phase
+    _PHASE_LABELS = {
+        "accumulation": "Накопление",
+        "intensification": "Интенсификация",
+        "deload": "Разгрузка",
+    }
+    weeks_data: list[dict] = parsed.get("weeks", [])
+    phase_groups: list[tuple] = []  # (phase, start_wk, end_wk, theme, session_labels)
+    for wk in weeks_data:
+        wk_num = wk.get("week_number", 0)
+        phase = wk.get("phase", "accumulation")
+        theme = wk.get("theme", "")
+        labels = [s.get("label", "") for s in wk.get("sessions", [])]
+        if phase_groups and phase_groups[-1][0] == phase:
+            g = phase_groups[-1]
+            phase_groups[-1] = (g[0], g[1], wk_num, g[3], g[4])
+        else:
+            phase_groups.append((phase, wk_num, wk_num, theme, labels))
+
+    phase_lines = []
+    for phase, start, end, theme, labels in phase_groups:
+        phase_label = _PHASE_LABELS.get(phase, phase)
+        wk_range = f"Нед. {start}" if start == end else f"Нед. {start}–{end}"
+        sessions_str = " → ".join(labels)
+        phase_lines.append(f"• {wk_range} *({phase_label})*: {theme}\n  _{sessions_str}_")
+
+    type_label = {
+        "strength": "Силовой", "hypertrophy": "На массу",
+        "functional": "Функциональный", "mixed": "Смешанный",
+    }.get(training_type or "", training_type or "смешанный")
+    equip_label = {
+        "gym": "Зал", "home_dumbbells": "Дом + гантели", "bodyweight": "Без инвентаря",
+    }.get(equipment or "", equipment or "зал")
+
+    preview_text = (
+        f"📅 *{title}*\n"
+        f"🔁 {weeks} нед · {sessions_per_week} тр/нед · {type_label} · {equip_label}\n\n"
+        + "\n".join(phase_lines)
+    )
+
+    return {
+        "status": "draft_ready",
+        "title": title,
+        "preview_text": preview_text,
+        "weeks": weeks,
+        "sessions_per_week": sessions_per_week,
+        "training_type": training_type,
+        "equipment": equipment,
+        "goal": goal,
+        "has_active_cycle": bool(existing),
+    }
+
+
+@tool
 async def create_training_cycle(
     telegram_user_id: int,
     goal: str,
@@ -850,6 +1072,15 @@ async def create_training_cycle(
 
     from db.models import TrainingCycleSchedule
     from llm.provider import get_llm
+
+    # Rate limit: max 3 cycle creations per day per user
+    if not _cycle_gen_allowed(telegram_user_id):
+        return {
+            "error": (
+                f"Достигнут дневной лимит создания программ ({_MAX_CYCLES_PER_DAY}/день). "
+                "Попробуй завтра."
+            )
+        }
 
     weeks = max(4, min(weeks, 8))
     sessions_per_week = max(2, min(sessions_per_week, 5))
@@ -1006,6 +1237,7 @@ async def create_training_cycle(
             .execute()
         )
         cycle_id = saved.data[0]["id"] if saved.data else None
+        _cycle_gen_increment(telegram_user_id)
     except Exception:
         logger.exception("Failed to save training cycle for user %s", telegram_user_id)
         return {"error": "Не удалось сохранить цикл в БД"}
@@ -1022,10 +1254,19 @@ async def create_training_cycle(
     except (IndexError, KeyError):
         next_session = None
 
+    _goal_display_map = {
+        "gain_muscle": "набор массы",
+        "lose_weight": "похудение",
+        "maintain": "поддержание формы",
+        "strength": "сила",
+        "endurance": "выносливость",
+        "flexibility": "гибкость",
+    }
     return {
         "cycle_id": cycle_id,
         "title": title,
         "goal": goal,
+        "goal_display": _goal_display_map.get(goal, goal),
         "total_weeks": weeks,
         "sessions_per_week": sessions_per_week,
         "training_type": training_type,
@@ -1583,7 +1824,159 @@ async def get_next_session_plan(
         plan["cycle_context"] = cycle_context
         plan["cycle_id"] = cycle_id
 
+    # Estimate duration and calorie burn
+    exercises = plan.get("exercises") or []
+    total_seconds = sum(
+        ex.get("sets", 3) * (30 + ex.get("rest_seconds", 90))
+        for ex in exercises
+    )
+    est_duration = round(10 + total_seconds / 60)
+    weight_kg = profile.get("weight_kg") or 75
+    est_calories = round(weight_kg * 0.0875 * est_duration)
+    plan["estimated_duration_min"] = est_duration
+    plan["estimated_calories"] = est_calories
+
     return plan
+
+
+@tool
+async def replace_workout_exercise(
+    telegram_user_id: int,
+    old_exercise_name: str,
+    new_exercise_name: Optional[str] = None,
+    workout_id: Optional[str] = None,
+) -> dict:
+    """Заменить одно упражнение в последнем (или указанном) плане тренировки.
+
+    Используй когда пользователь говорит «замени X», «не могу делать X», «убери X»,
+    «поставь вместо X что-нибудь другое». Сохраняет количество подходов, повторений
+    и отдых от оригинала.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        old_exercise_name: Название упражнения которое нужно заменить.
+        new_exercise_name: Конкретное новое упражнение (если пользователь уже назвал).
+                           Если не указано — подберём автоматически из базы.
+        workout_id: ID плана тренировки. Если не указан — берётся последний план.
+    """
+    from agent.tools.exercise_db import EXERCISE_DB, get_safe_exercises
+
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"error": "Пользователь не найден"}
+
+    client = await get_client()
+
+    # Load workout plan
+    if workout_id:
+        result = (
+            await client.table("workouts")
+            .select("id, plan")
+            .eq("id", workout_id)
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+        row = result.data
+    else:
+        result = (
+            await client.table("workouts")
+            .select("id, plan")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        row = rows[0] if rows else None
+
+    if not row:
+        return {"error": "Нет сохранённых тренировок"}
+
+    plan = row.get("plan") or {}
+    exercises: list[dict] = plan.get("exercises") or []
+    if not exercises:
+        return {"error": "В плане нет упражнений"}
+
+    # Fuzzy-find old exercise
+    old_key = _normalize_key(old_exercise_name)
+    match_idx = next(
+        (i for i, ex in enumerate(exercises) if old_key in _normalize_key(ex.get("name", ""))),
+        None,
+    )
+    if match_idx is None:
+        names = ", ".join(ex.get("name", "") for ex in exercises)
+        return {"error": f"Упражнение «{old_exercise_name}» не найдено в плане. Есть: {names}"}
+
+    original = exercises[match_idx]
+
+    if new_exercise_name:
+        # User specified a replacement directly
+        replacement_ex = {
+            "name": new_exercise_name,
+            "sets": original.get("sets", 3),
+            "reps": original.get("reps", "10"),
+            "weight_kg": original.get("weight_kg"),
+            "rest_seconds": original.get("rest_seconds", 90),
+        }
+    else:
+        # Auto-select from exercise DB: find muscle group of original exercise
+        orig_key = _normalize_key(original.get("name", ""))
+        db_match = next(
+            (ex for ex in EXERCISE_DB if orig_key in _normalize_key(ex.name)),
+            None,
+        )
+        muscle_group = db_match.muscle_group if db_match else "chest"
+
+        # Load user profile for injury filter and equipment
+        profile_result = (
+            await client.table("users")
+            .select("injuries, equipment")
+            .eq("telegram_user_id", telegram_user_id)
+            .single()
+            .execute()
+        )
+        profile = profile_result.data or {}
+        injuries: list[str] = profile.get("injuries") or []
+        equipment_pref = profile.get("equipment")
+        eq_filter = [equipment_pref] if equipment_pref else None
+
+        current_names = {_normalize_key(ex.get("name", "")) for ex in exercises}
+        candidates = [
+            ex for ex in get_safe_exercises(muscle_group, injuries, equipment=eq_filter, max_count=20)
+            if _normalize_key(ex.name) not in current_names
+            and _normalize_key(ex.name) != orig_key
+        ]
+        if not candidates:
+            return {"error": f"Нет доступных замен для «{original['name']}» с учётом оборудования и противопоказаний"}
+
+        chosen = candidates[0]
+        replacement_ex = {
+            "name": chosen.name,
+            "sets": original.get("sets", 3),
+            "reps": original.get("reps", "10"),
+            "weight_kg": original.get("weight_kg"),
+            "rest_seconds": original.get("rest_seconds", 90),
+        }
+
+    # Update plan
+    updated_exercises = list(exercises)
+    updated_exercises[match_idx] = replacement_ex
+    updated_plan = {**plan, "exercises": updated_exercises}
+
+    await (
+        client.table("workouts")
+        .update({"plan": updated_plan})
+        .eq("id", row["id"])
+        .execute()
+    )
+
+    return {
+        "replaced": original.get("name"),
+        "with": replacement_ex["name"],
+        "workout_id": row["id"],
+        "updated_exercises": [ex.get("name") for ex in updated_exercises],
+    }
 
 
 @tool
@@ -1949,9 +2342,9 @@ async def generate_weekly_debrief(telegram_user_id: int) -> dict:
     prev_date = today - timedelta(days=7)
     previous_iso = prev_date.strftime("%G-W%V")
 
-    since = (today - timedelta(days=14)).isoformat()
+    since = (today - timedelta(days=56)).isoformat()  # 8 weeks for exercise trend
 
-    # ── Workout logs (14 days) ────────────────────────────────────────
+    # ── Workout logs (8 weeks) ────────────────────────────────────────
     logs_result = (
         await client.table("workout_logs")
         .select("completed_at, performance")
@@ -1974,7 +2367,7 @@ async def generate_weekly_debrief(telegram_user_id: int) -> dict:
             "volume_by_group": {},
             "alerts": [],
             "active_cycle": None,
-            "message": "Нет тренировок за последние 2 недели.",
+            "message": "Нет тренировок за последние 8 недель.",
         }
 
     # ── Active cycle ──────────────────────────────────────────────────
