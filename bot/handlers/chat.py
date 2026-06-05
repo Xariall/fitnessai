@@ -101,17 +101,17 @@ async def run_agent(
     existing_placeholder: Message | None = None,
     keyboard: InlineKeyboardMarkup | None = None,
     on_tool_end: Callable[[str, Any], None] | None = None,
+    on_response_msg_id: Callable[[int], None] | None = None,
+    state: FSMContext | None = None,
 ) -> Optional[str]:
     """Unified agent invocation with streaming for both Message and CallbackQuery sources.
-
-    For CallbackQuery: removes the old inline keyboard from the trigger message before
-    sending the placeholder, so the chat stays clean.
 
     Args:
         source: The triggering Message or CallbackQuery.
         user_text: The user's input to pass to the agent.
         existing_placeholder: Reuse an existing message as the placeholder (e.g. voice status msg).
         keyboard: Inline keyboard to attach to the final response message.
+        state: FSMContext for single-message navigation — deletes previous card, tracks new one.
     """
     from bot.budget import increment, is_allowed
 
@@ -122,9 +122,6 @@ async def run_agent(
         answer_photo_fn = source.message.answer_photo
         bot = source.bot
         chat_id = source.message.chat.id
-        # Remove the stale inline keyboard from the button message
-        with contextlib.suppress(TelegramBadRequest):
-            await source.message.edit_reply_markup(reply_markup=None)
     else:
         telegram_user_id = source.from_user.id
         answer_fn = source.answer
@@ -140,6 +137,11 @@ async def run_agent(
         )
         return None
     increment(telegram_user_id)
+
+    # ── Delete previous card (single-message navigation) ────────────────────
+    if state is not None and existing_placeholder is None:
+        from bot.helpers import delete_tracked
+        await delete_tracked(bot, chat_id, state)
 
     # ── Placeholder ───────────────────────────────────────────────────────────
     if existing_placeholder is not None:
@@ -200,6 +202,9 @@ async def run_agent(
             elif kind == "on_tool_end" and on_tool_end is not None:
                 tool_name = event.get("name", "")
                 output = event.get("data", {}).get("output")
+                # LangGraph returns ToolMessage object; extract .content
+                if hasattr(output, "content"):
+                    output = output.content
                 if isinstance(output, str):
                     try:
                         output = _json.loads(output)
@@ -323,16 +328,32 @@ async def run_agent(
         except TelegramBadRequest:
             await placeholder.edit_text(accumulated, reply_markup=keyboard)
 
+    if on_response_msg_id is not None:
+        on_response_msg_id(placeholder.message_id)
+
+    # ── Track final message for single-message navigation ─────────────────
+    if state is not None:
+        await state.update_data(last_bot_msg_id=placeholder.message_id)
+
     return accumulated
 
 
-async def _run_agent_streaming(message: Message, telegram_user_id: int, user_input: str) -> Optional[str]:
-    """Backward-compat wrapper around run_agent for Message sources."""
+async def _run_agent_streaming(
+    message: Message,
+    telegram_user_id: int,
+    user_input: str,
+    state: FSMContext | None = None,
+) -> Optional[str]:
+    """Wrapper around run_agent for Message sources with state tracking."""
     from bot.helpers import build_workout_keyboard
-    response = await run_agent(message, user_input)
+
+    response = await run_agent(message, user_input, state=state)
+
     if response and "программа создана" in response.lower():
         kb = await build_workout_keyboard(telegram_user_id)
-        await message.answer("💪 Готов к первой тренировке?", reply_markup=kb)
+        follow = await message.answer("💪 Готов к первой тренировке?", reply_markup=kb)
+        if state:
+            await state.update_data(last_bot_msg_id=follow.message_id)
     return response
 
 
@@ -393,50 +414,50 @@ async def handle_main_menu_section(
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
+    from bot.helpers import send_and_track
     if message.text == "🏋️ Тренировка":
         from bot.helpers import get_workout_section
-        import contextlib
-        # Удаляем предыдущее сообщение секции, чтобы не засорять чат
-        data = await state.get_data()
-        prev_msg_id = data.get("workout_section_msg_id")
-        if prev_msg_id:
-            with contextlib.suppress(Exception):
-                await message.bot.delete_message(message.chat.id, prev_msg_id)
         text, kb = await get_workout_section(message.from_user.id)
-        sent = await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
-        await state.update_data(workout_section_msg_id=sent.message_id)
+        await send_and_track(message, text, state, reply_markup=kb, delete_user_msg=True)
         return
     text, kb_func = _MAIN_MENU_SUBMENUS[message.text]
-    await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
+    await send_and_track(message, text, state, reply_markup=kb_func(), delete_user_msg=True)
 
 
 @router.message(F.text == "👤 Профиль")
-async def handle_main_menu_profile(message: Message, is_registered: bool = False) -> None:
+async def handle_main_menu_profile(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     """Кнопка Профиль из главного меню."""
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
-    from bot.handlers.commands import _show_profile
-    await _show_profile(message)
+    from bot.handlers.commands import get_profile_text
+    from bot.helpers import send_and_track
+    text = await get_profile_text(telegram_user_id=message.from_user.id)
+    await send_and_track(message, text, state, delete_user_msg=True)
 
 
 @router.message(F.text == "💪 Мотивация")
-async def handle_main_menu_motivation(message: Message, is_registered: bool = False) -> None:
+async def handle_main_menu_motivation(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     """Кнопка Мотивация из главного меню."""
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
-    await _run_agent_streaming(message, message.from_user.id, "Мотивируй меня")
+    with contextlib.suppress(Exception):
+        await message.delete()
+    await _run_agent_streaming(message, message.from_user.id, "Мотивируй меня", state=state)
 
 
 @router.message(F.voice)
-async def handle_voice(message: Message, is_registered: bool = False) -> None:
+async def handle_voice(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     """Обработчик голосовых сообщений."""
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
 
+    from bot.helpers import delete_tracked
+    await delete_tracked(message.bot, message.chat.id, state)
     status_msg = await message.answer("🎙 _Распознаю речь..._", parse_mode=ParseMode.MARKDOWN)
+    await state.update_data(last_bot_msg_id=status_msg.message_id)
 
     try:
         file = await message.bot.get_file(message.voice.file_id)
@@ -453,7 +474,7 @@ async def handle_voice(message: Message, is_registered: bool = False) -> None:
         parse_mode=ParseMode.MARKDOWN,
     )
     user_input = _build_input_with_context(message, transcription)
-    # Reuse status_msg as the agent placeholder — keeps voice to 1 message total
+    # НЕ передаём state — status_msg уже трекается, run_agent переиспользует его
     response_text = await run_agent(message, user_input, existing_placeholder=status_msg)
 
     # Голосовой ответ на голосовое сообщение
@@ -461,7 +482,6 @@ async def handle_voice(message: Message, is_registered: bool = False) -> None:
         try:
             audio_bytes = await _generate_tts(response_text)
             if audio_bytes:
-                # edge-tts возвращает MP3 — используем answer_audio (не answer_voice)
                 await message.answer_audio(
                     BufferedInputFile(audio_bytes, filename="response.mp3")
                 )
@@ -470,11 +490,11 @@ async def handle_voice(message: Message, is_registered: bool = False) -> None:
 
 
 @router.message()
-async def handle_message(message: Message, is_registered: bool = False) -> None:
+async def handle_message(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     """Основной обработчик текстовых сообщений."""
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
 
     user_input = _build_input_with_context(message, message.text or "")
-    await _run_agent_streaming(message, message.from_user.id, user_input)
+    await _run_agent_streaming(message, message.from_user.id, user_input, state=state)

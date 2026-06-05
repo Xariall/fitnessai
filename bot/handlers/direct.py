@@ -6,13 +6,12 @@ from typing import Optional
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, Message
+from aiogram.types import Message
 
 from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
-from bot.helpers import build_workout_keyboard
+from bot.helpers import clear_fsm_keep_nav, get_cycle_banner, send_and_track
 from bot.keyboards.main import (
     after_nutrition_keyboard,
     after_progress_keyboard,
@@ -21,9 +20,7 @@ from bot.keyboards.main import (
     after_workout_keyboard,
     nutrition_submenu_keyboard,
     progress_submenu_keyboard,
-    workout_submenu_keyboard,
 )
-from bot.helpers import get_cycle_banner
 from db.client import get_client
 
 logger = logging.getLogger(__name__)
@@ -69,22 +66,15 @@ def _calc_norms(user: dict) -> dict:
     return {"calories": calories, "protein": protein, "fat": fat, "carbs": carbs}
 
 
-async def _send(message: Message, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
-    try:
-        await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
-    except TelegramBadRequest:
-        await message.answer(text, reply_markup=reply_markup)
-
-
 # ──────────────────────────────────────────────
 # Итог питания за сегодня
 # ──────────────────────────────────────────────
 
-async def show_today_summary(message: Message, telegram_user_id: int) -> None:
+async def show_today_summary(message: Message, telegram_user_id: int, state: FSMContext) -> None:
     try:
         user = await _get_user(telegram_user_id)
         if not user:
-            await message.answer("Профиль не найден. Начни с /start.")
+            await send_and_track(message, "Профиль не найден. Начни с /start.", state)
             return
 
         client = await get_client()
@@ -100,11 +90,12 @@ async def show_today_summary(message: Message, telegram_user_id: int) -> None:
         norms = _calc_norms(user)
 
         if not logs:
-            await _send(
+            await send_and_track(
                 message,
                 "🍽 *Итог за сегодня*\n\n"
                 "Пока ничего не записано.\n"
                 "_Напиши что ел — я посчитаю!_",
+                state,
                 reply_markup=after_nutrition_keyboard(),
             )
             return
@@ -131,7 +122,7 @@ async def show_today_summary(message: Message, telegram_user_id: int) -> None:
             f"Углеводы: `{c['carbs']} / {n['carbs']}г` {_progress_bar(c['carbs'], n['carbs'])} {_pct(c['carbs'], n['carbs'])}%\n\n"
             f"{hint}"
         )
-        await _send(message, text, reply_markup=after_nutrition_keyboard())
+        await send_and_track(message, text, state, reply_markup=after_nutrition_keyboard())
 
     except Exception:
         logger.exception("show_today_summary error for user %s", telegram_user_id)
@@ -142,11 +133,11 @@ async def show_today_summary(message: Message, telegram_user_id: int) -> None:
 # История тренировок
 # ──────────────────────────────────────────────
 
-async def show_workout_history(message: Message, telegram_user_id: int) -> None:
+async def show_workout_history(message: Message, telegram_user_id: int, state: FSMContext) -> None:
     try:
         user = await _get_user(telegram_user_id)
         if not user:
-            await message.answer("Профиль не найден. Начни с /start.")
+            await send_and_track(message, "Профиль не найден. Начни с /start.", state)
             return
 
         client = await get_client()
@@ -164,11 +155,12 @@ async def show_workout_history(message: Message, telegram_user_id: int) -> None:
 
         if not logs:
             prefix = banner or ""
-            await _send(
+            await send_and_track(
                 message,
                 f"{prefix}📋 *История тренировок*\n\n"
                 "Тренировок пока нет.\n"
                 "_Напиши «запиши тренировку» после занятия!_",
+                state,
                 reply_markup=after_workout_keyboard(),
             )
             return
@@ -189,7 +181,7 @@ async def show_workout_history(message: Message, telegram_user_id: int) -> None:
                 short = notes[:80] + ("..." if len(notes) > 80 else "")
                 lines.append(f"   _{short}_")
 
-        await _send(message, "\n".join(lines), reply_markup=after_workout_keyboard())
+        await send_and_track(message, "\n".join(lines), state, reply_markup=after_workout_keyboard())
 
     except Exception:
         logger.exception("show_workout_history error for user %s", telegram_user_id)
@@ -200,11 +192,11 @@ async def show_workout_history(message: Message, telegram_user_id: int) -> None:
 # Динамика веса
 # ──────────────────────────────────────────────
 
-async def show_progress_dynamics(message: Message, telegram_user_id: int) -> None:
+async def show_progress_dynamics(message: Message, telegram_user_id: int, state: FSMContext) -> None:
     try:
         user = await _get_user(telegram_user_id)
         if not user:
-            await message.answer("Профиль не найден. Начни с /start.")
+            await send_and_track(message, "Профиль не найден. Начни с /start.", state)
             return
 
         client = await get_client()
@@ -221,11 +213,12 @@ async def show_progress_dynamics(message: Message, telegram_user_id: int) -> Non
         logs = result.data or []
 
         if not logs:
-            await _send(
+            await send_and_track(
                 message,
                 "📊 *Динамика веса*\n\n"
                 "Замеров пока нет.\n"
                 "_Запиши свой вес: нажми «Записать замер» или напиши «вешу 80кг»_",
+                state,
                 reply_markup=after_progress_keyboard(),
             )
             return
@@ -245,7 +238,7 @@ async def show_progress_dynamics(message: Message, telegram_user_id: int) -> Non
             date_str = dt.astimezone().strftime("%-d %b")
             lines.append(f"• {date_str} — {log['weight_kg']} кг")
 
-        await _send(message, "\n".join(lines), reply_markup=after_progress_keyboard())
+        await send_and_track(message, "\n".join(lines), state, reply_markup=after_progress_keyboard())
 
     except Exception:
         logger.exception("show_progress_dynamics error for user %s", telegram_user_id)
@@ -267,11 +260,11 @@ def _days_word(n: int) -> str:
     return "дней"
 
 
-async def show_stats(message: Message, telegram_user_id: int) -> None:
+async def show_stats(message: Message, telegram_user_id: int, state: FSMContext) -> None:
     try:
         user = await _get_user(telegram_user_id)
         if not user:
-            await message.answer("Профиль не найден. Начни с /start.")
+            await send_and_track(message, "Профиль не найден. Начни с /start.", state)
             return
 
         client = await get_client()
@@ -377,7 +370,7 @@ async def show_stats(message: Message, telegram_user_id: int) -> None:
             f"*С начала:* {days_in_app} {_days_word(days_in_app)} в приложении 🔥"
             f"{budget_line}"
         )
-        await _send(message, text, reply_markup=after_stats_keyboard())
+        await send_and_track(message, text, state, reply_markup=after_stats_keyboard())
 
     except Exception:
         logger.exception("show_stats error for user %s", telegram_user_id)
@@ -403,18 +396,17 @@ _MENU_ALL = frozenset({*_MENU_SUBMENUS.keys(), "👤 Профиль", "💪 Мо
 @router.message(WeightFSM.waiting_for_weight, F.text.in_(_MENU_ALL))
 async def weight_fsm_escape(message: Message, state: FSMContext) -> None:
     """Кнопки главного меню выходят из FSM без потери нажатия."""
-    await state.clear()
+    await clear_fsm_keep_nav(state)
     text = message.text or ""
     if text == "🏋️ Тренировка":
         from bot.helpers import get_workout_section
         section_text, kb = await get_workout_section(message.from_user.id)
-        await message.answer(section_text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        await send_and_track(message, section_text, state, reply_markup=kb, delete_user_msg=True)
     elif text in _MENU_SUBMENUS:
         title, kb_func = _MENU_SUBMENUS[text]
-        await message.answer(title, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
+        await send_and_track(message, title, state, reply_markup=kb_func(), delete_user_msg=True)
     else:
-        # Профиль и Мотивация — просто сбрасываем, следующее нажатие сработает
-        await message.answer("Ввод веса отменён. Нажми кнопку ещё раз 👇")
+        await send_and_track(message, "Ввод веса отменён. Нажми кнопку ещё раз 👇", state, delete_user_msg=True)
 
 
 @router.message(WeightFSM.waiting_for_weight)
@@ -426,13 +418,13 @@ async def handle_weight_input(message: Message, state: FSMContext) -> None:
         await message.answer("Введи вес числом, например: `82.5`", parse_mode=ParseMode.MARKDOWN)
         return
 
-    await state.clear()
+    await clear_fsm_keep_nav(state)
     telegram_user_id = message.from_user.id
 
     try:
         user = await _get_user(telegram_user_id)
         if not user:
-            await message.answer("Профиль не найден. Начни с /start.")
+            await send_and_track(message, "Профиль не найден. Начни с /start.", state, delete_user_msg=True)
             return
 
         client = await get_client()
@@ -464,14 +456,16 @@ async def handle_weight_input(message: Message, state: FSMContext) -> None:
         else:
             delta_line = "Первый замер — точка отсчёта!"
 
-        await _send(
+        await send_and_track(
             message,
             f"📊 *Прогресс записан*\n\n"
             f"Вес: `{weight} кг`\n"
             f"{delta_line}\n"
             f"Дата: {today_str}\n\n"
             "_Держи темп! 💪_",
+            state,
             reply_markup=after_weight_keyboard(),
+            delete_user_msg=True,
         )
 
     except Exception:
@@ -492,23 +486,28 @@ _INPUT_TIMEOUT_SEC = 900  # 15 минут
 
 @router.message(InputModeFSM.waiting_for_input, F.text.in_(_MENU_ALL))
 async def input_mode_escape(message: Message, state: FSMContext) -> None:
-    await state.clear()
+    await clear_fsm_keep_nav(state)
     text = message.text or ""
-    if text in _MENU_SUBMENUS:
+    if text == "🏋️ Тренировка":
+        from bot.helpers import get_workout_section
+        section_text, kb = await get_workout_section(message.from_user.id)
+        await send_and_track(message, section_text, state, reply_markup=kb, delete_user_msg=True)
+    elif text in _MENU_SUBMENUS:
         title, kb_func = _MENU_SUBMENUS[text]
-        await message.answer(title, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
+        await send_and_track(message, title, state, reply_markup=kb_func(), delete_user_msg=True)
     else:
-        await message.answer("Ввод отменён. Нажми кнопку ещё раз 👇")
+        await send_and_track(message, "Ввод отменён. Нажми кнопку ещё раз 👇", state, delete_user_msg=True)
 
 
 @router.message(InputModeFSM.waiting_for_input, F.text)
 async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
+    import contextlib
     from bot.handlers.chat import run_agent
 
     data = await state.get_data()
     if time.time() - data.get("created_at", 0) > _INPUT_TIMEOUT_SEC:
-        await state.clear()
-        await message.answer("⏱ Время ввода истекло. Нажми кнопку снова — я готов записать!")
+        await clear_fsm_keep_nav(state)
+        await send_and_track(message, "⏱ Время ввода истекло. Нажми кнопку снова — я готов записать!", state)
         return
 
     user_text = (message.text or "").strip()
@@ -524,8 +523,11 @@ async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
     else:
         prompt = user_text
 
-    await state.clear()
-    placeholder = await message.answer("_Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
+    await clear_fsm_keep_nav(state)
+
+    # Удалить юзерское сообщение с текстом ввода
+    with contextlib.suppress(Exception):
+        await message.delete()
 
     cycle_complete = False
 
@@ -540,18 +542,19 @@ async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
                     cycle_complete = True
 
         response = await run_agent(
-            message, prompt, existing_placeholder=placeholder, on_tool_end=_on_tool_end
+            message, prompt, state=state, on_tool_end=_on_tool_end
         )
     else:
-        response = await run_agent(message, prompt, existing_placeholder=placeholder)
+        response = await run_agent(message, prompt, state=state)
 
     if mode == "log_workout" and cycle_complete:
         from bot.keyboards.main import cycle_complete_keyboard
-        await message.answer(
+        follow = await message.answer(
             "_Выбери что делаем дальше:_",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=cycle_complete_keyboard(),
         )
+        await state.update_data(last_bot_msg_id=follow.message_id)
 
 
 @router.message(InputModeFSM.waiting_for_input)

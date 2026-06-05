@@ -3,6 +3,7 @@ import logging
 from aiogram import Router
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from langchain_core.messages import HumanMessage
 
@@ -28,26 +29,24 @@ _ACTIVITY_LABELS = {
 }
 
 
-async def _show_profile(message: Message, telegram_user_id: int | None = None) -> None:
-    uid = telegram_user_id or message.from_user.id
+async def get_profile_text(telegram_user_id: int) -> str:
+    """Формирует текст профиля пользователя. Без side-эффектов."""
     try:
         client = await get_client()
         result = (
             await client.table("users")
             .select("*")
-            .eq("telegram_user_id", uid)
+            .eq("telegram_user_id", telegram_user_id)
             .single()
             .execute()
         )
         profile = result.data
     except Exception:
-        logger.exception("Failed to load profile for %s", uid)
-        await message.answer("Не удалось загрузить профиль. Попробуй ещё раз.")
-        return
+        logger.exception("Failed to load profile for %s", telegram_user_id)
+        return "Не удалось загрузить профиль. Попробуй ещё раз."
 
     if not profile:
-        await message.answer("Профиль не найден. Начни с команды /start.")
-        return
+        return "Профиль не найден. Начни с команды /start."
 
     goal = _GOAL_LABELS.get(profile.get("goal", ""), profile.get("goal", "—"))
     activity = _ACTIVITY_LABELS.get(profile.get("activity_level", ""), profile.get("activity_level", "—"))
@@ -59,7 +58,7 @@ async def _show_profile(message: Message, telegram_user_id: int | None = None) -
         bmi = weight / (height / 100) ** 2
         bmi_line = f"\n📐 *ИМТ:* {bmi:.1f}"
 
-    text = (
+    return (
         f"👤 *Профиль*\n\n"
         f"🏷 *Имя:* {profile.get('name', '—')}\n"
         f"🎂 *Возраст:* {profile.get('age', '—')} лет\n"
@@ -68,9 +67,17 @@ async def _show_profile(message: Message, telegram_user_id: int | None = None) -
         f"{bmi_line}\n\n"
         f"🎯 *Цель:* {goal}\n"
         f"🏃 *Активность:* {activity}\n\n"
-        "_Чтобы обновить профиль, напиши мне, например: «мой вес теперь 80кг»_"
+        "_Чтобы обновить профиль, напиши мне, например: «мой вес теперь 80 кг»_"
     )
-    await message.answer(text, parse_mode=ParseMode.MARKDOWN)
+
+
+async def _show_profile(message: Message, telegram_user_id: int | None = None) -> None:
+    uid = telegram_user_id or message.from_user.id
+    text = await get_profile_text(uid)
+    try:
+        await message.answer(text, parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        await message.answer(text)
 
 
 async def _quick_agent(message: Message, prompt: str) -> None:
@@ -128,11 +135,13 @@ async def cmd_help(message: Message, is_registered: bool = False) -> None:
 
 
 @router.message(Command("profile"))
-async def cmd_profile(message: Message, is_registered: bool = False) -> None:
+async def cmd_profile(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
-    await _show_profile(message)
+    from bot.helpers import send_and_track
+    text = await get_profile_text(message.from_user.id)
+    await send_and_track(message, text, state)
 
 
 @router.message(Command("menu"))
@@ -157,27 +166,27 @@ async def cmd_nutrition(message: Message, is_registered: bool = False) -> None:
 
 
 @router.message(Command("today"))
-async def cmd_today(message: Message, is_registered: bool = False) -> None:
+async def cmd_today(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
     from bot.handlers.direct import show_today_summary
-    await show_today_summary(message, message.from_user.id)
+    await show_today_summary(message, message.from_user.id, state)
 
 
 @router.message(Command("progress"))
-async def cmd_progress(message: Message, is_registered: bool = False) -> None:
+async def cmd_progress(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
     from bot.handlers.direct import show_progress_dynamics
-    await show_progress_dynamics(message, message.from_user.id)
+    await show_progress_dynamics(message, message.from_user.id, state)
 
 
 @router.message(Command("stats"))
-async def cmd_stats(message: Message, is_registered: bool = False) -> None:
+async def cmd_stats(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
     from bot.handlers.direct import show_stats
-    await show_stats(message, message.from_user.id)
+    await show_stats(message, message.from_user.id, state)
