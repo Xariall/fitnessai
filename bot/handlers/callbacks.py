@@ -84,9 +84,10 @@ async def handle_menu_home(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "back:workout")
 async def handle_back_workout(callback: CallbackQuery) -> None:
+    from bot.helpers import get_workout_section
     await callback.answer()
-    kb = await build_workout_keyboard(callback.from_user.id)
-    await callback.message.edit_text("🏋️ Тренировки", reply_markup=kb)
+    text, kb = await get_workout_section(callback.from_user.id)
+    await callback.message.edit_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("back:"))

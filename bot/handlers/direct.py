@@ -406,8 +406,9 @@ async def weight_fsm_escape(message: Message, state: FSMContext) -> None:
     await state.clear()
     text = message.text or ""
     if text == "🏋️ Тренировка":
-        kb = await build_workout_keyboard(message.from_user.id)
-        await message.answer("🏋️ *Тренировки*", parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        from bot.helpers import get_workout_section
+        section_text, kb = await get_workout_section(message.from_user.id)
+        await message.answer(section_text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
     elif text in _MENU_SUBMENUS:
         title, kb_func = _MENU_SUBMENUS[text]
         await message.answer(title, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())
@@ -525,9 +526,26 @@ async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
 
     await state.clear()
     placeholder = await message.answer("_Обрабатываю..._", parse_mode=ParseMode.MARKDOWN)
-    response = await run_agent(message, prompt, existing_placeholder=placeholder)
 
-    if mode == "log_workout" and response and "🏆" in response:
+    cycle_complete = False
+
+    if mode == "log_workout":
+        from typing import Any
+
+        def _on_tool_end(tool_name: str, output: Any) -> None:
+            nonlocal cycle_complete
+            if tool_name == "log_workout" and isinstance(output, dict):
+                adv = output.get("cycle_advancement") or {}
+                if isinstance(adv, dict) and adv.get("is_complete"):
+                    cycle_complete = True
+
+        response = await run_agent(
+            message, prompt, existing_placeholder=placeholder, on_tool_end=_on_tool_end
+        )
+    else:
+        response = await run_agent(message, prompt, existing_placeholder=placeholder)
+
+    if mode == "log_workout" and cycle_complete:
         from bot.keyboards.main import cycle_complete_keyboard
         await message.answer(
             "_Выбери что делаем дальше:_",

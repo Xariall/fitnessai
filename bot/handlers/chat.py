@@ -4,11 +4,13 @@ import logging
 import re
 import time
 from io import BytesIO
-from typing import Optional
+import json as _json
+from typing import Any, Callable, Optional
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 from langchain_core.messages import HumanMessage
 
@@ -98,6 +100,7 @@ async def run_agent(
     *,
     existing_placeholder: Message | None = None,
     keyboard: InlineKeyboardMarkup | None = None,
+    on_tool_end: Callable[[str, Any], None] | None = None,
 ) -> Optional[str]:
     """Unified agent invocation with streaming for both Message and CallbackQuery sources.
 
@@ -193,6 +196,16 @@ async def run_agent(
                 tool_name = event.get("name", "")
                 status = _TOOL_STATUS.get(tool_name, "⏳ Работаю с данными...")
                 await _safe_edit(placeholder, f"_{status}_", parse_mode=ParseMode.MARKDOWN)
+
+            elif kind == "on_tool_end" and on_tool_end is not None:
+                tool_name = event.get("name", "")
+                output = event.get("data", {}).get("output")
+                if isinstance(output, str):
+                    try:
+                        output = _json.loads(output)
+                    except Exception:
+                        pass
+                on_tool_end(tool_name, output)
 
             elif kind == "on_chat_model_stream" and node == "planner" and is_final_planner:
                 chunk = event["data"].get("chunk")
@@ -373,14 +386,25 @@ _MAIN_MENU_SUBMENUS = {
 
 
 @router.message(F.text.in_(_MAIN_MENU_SUBMENUS.keys()))
-async def handle_main_menu_section(message: Message, is_registered: bool = False) -> None:
+async def handle_main_menu_section(
+    message: Message, state: FSMContext, is_registered: bool = False
+) -> None:
     """Кнопки главного меню открывают соответствующие submenus."""
     if not is_registered:
         await message.answer("Пожалуйста, начни с команды /start для регистрации.")
         return
     if message.text == "🏋️ Тренировка":
-        kb = await build_workout_keyboard(message.from_user.id)
-        await message.answer("🏋️ *Тренировки*", parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        from bot.helpers import get_workout_section
+        import contextlib
+        # Удаляем предыдущее сообщение секции, чтобы не засорять чат
+        data = await state.get_data()
+        prev_msg_id = data.get("workout_section_msg_id")
+        if prev_msg_id:
+            with contextlib.suppress(Exception):
+                await message.bot.delete_message(message.chat.id, prev_msg_id)
+        text, kb = await get_workout_section(message.from_user.id)
+        sent = await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        await state.update_data(workout_section_msg_id=sent.message_id)
         return
     text, kb_func = _MAIN_MENU_SUBMENUS[message.text]
     await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb_func())

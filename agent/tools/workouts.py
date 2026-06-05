@@ -1357,11 +1357,18 @@ async def get_active_cycle(telegram_user_id: int) -> dict:
             "error": "Программа активна, но возникла ошибка отображения",
         }
 
+    _goal_labels = {
+        "lose_weight": "Похудение",
+        "gain_muscle": "Набор мышечной массы",
+        "maintain": "Поддержание формы",
+        "strength": "Сила",
+        "endurance": "Выносливость",
+    }
     return {
         "status": "active",
         "cycle_id": str(row["id"]),
         "title": row["title"],
-        "goal": row["goal"],
+        "goal": _goal_labels.get(row["goal"], row["goal"]),
         "current_week": row["current_week"],
         "total_weeks": row["total_weeks"],
         "total_sessions_done": row["total_sessions_done"],

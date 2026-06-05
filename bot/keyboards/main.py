@@ -34,7 +34,6 @@ def workout_submenu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="✅ Записать итог", callback_data="submenu:log_workout"),
             ],
             [
-                InlineKeyboardButton(text="📅 Моя программа", callback_data="submenu:active_cycle"),
                 InlineKeyboardButton(text="🔄 Восстановление", callback_data="after:recovery"),
             ],
         ]
@@ -49,10 +48,7 @@ def workout_submenu_keyboard_with_create() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="✅ Записать итог", callback_data="submenu:log_workout"),
             ],
             [
-                InlineKeyboardButton(text="📅 Моя программа", callback_data="submenu:active_cycle"),
                 InlineKeyboardButton(text="🔄 Восстановление", callback_data="after:recovery"),
-            ],
-            [
                 InlineKeyboardButton(text="➕ Создать программу", callback_data="submenu:create_cycle"),
             ],
         ]
