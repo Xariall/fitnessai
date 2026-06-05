@@ -206,8 +206,8 @@ async def handle_submenu(callback: CallbackQuery, state: FSMContext) -> None:
     response = await run_agent(callback, prompt, state=state)
     if response and "программа создана" in response.lower():
         from bot.keyboards.main import after_cycle_create_keyboard
-        from bot.helpers import send_and_track
-        await send_and_track(callback, "Готов начать? Нажми кнопку:", state, reply_markup=after_cycle_create_keyboard())
+        from bot.helpers import attach_keyboard
+        await attach_keyboard(callback, state, after_cycle_create_keyboard())
 
 
 @router.callback_query(F.data.startswith("quick:"))
@@ -295,17 +295,17 @@ async def handle_cycle_confirm_draft(callback: CallbackQuery, state: FSMContext)
     training_type = params.get("training_type", "mixed")
     equipment = params.get("equipment", "gym")
     goal = params.get("goal", "gain_muscle")
-    force_part = " Если есть активный цикл — замени его (force_replace=True)." if params.get("has_active_cycle") else ""
+    force_replace_val = "True" if params.get("has_active_cycle") else "False"
     prompt = (
         f"Пользователь подтвердил создание программы. Вызови create_training_cycle с параметрами: "
         f"goal={goal}, weeks={weeks}, sessions_per_week={sessions_per_week}, "
-        f"training_type={training_type}, equipment={equipment}, force_replace=False.{force_part}"
+        f"training_type={training_type}, equipment={equipment}, force_replace={force_replace_val}."
     )
     response = await run_agent(callback, prompt, state=state)
     if response and "программа создана" in response.lower():
         from bot.keyboards.main import after_cycle_create_keyboard
-        from bot.helpers import send_and_track
-        await send_and_track(callback, "Готов начать? Нажми кнопку:", state, reply_markup=after_cycle_create_keyboard())
+        from bot.helpers import attach_keyboard
+        await attach_keyboard(callback, state, after_cycle_create_keyboard())
     await state.update_data(cycle_draft_params=None)
 
 

@@ -305,24 +305,30 @@ async def run_agent(
         # Отправляем фото с текстом как caption — одно сообщение вместо двух
         with contextlib.suppress(Exception):
             await placeholder.delete()
+        sent_msg = None
         try:
-            await answer_photo_fn(
+            sent_msg = await answer_photo_fn(
                 meme_url,
                 caption=accumulated,
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=keyboard,
             )
         except TelegramBadRequest:
-            # Если Markdown в caption сломался — без форматирования
-            await answer_photo_fn(meme_url, caption=accumulated, reply_markup=keyboard)
+            sent_msg = await answer_photo_fn(meme_url, caption=accumulated, reply_markup=keyboard)
         except Exception:
             logger.warning("Failed to send meme photo for user %s", telegram_user_id, exc_info=True)
-            # Fallback: текст отдельно
             try:
                 await answer_photo_fn(meme_url)
             except Exception:
                 pass
-            await answer_fn(accumulated, parse_mode=ParseMode.MARKDOWN)
+            sent_msg = await answer_fn(accumulated, parse_mode=ParseMode.MARKDOWN)
+        # Track the sent photo/text message, not the deleted placeholder
+        if sent_msg is not None:
+            if on_response_msg_id is not None:
+                on_response_msg_id(sent_msg.message_id)
+            if state is not None:
+                await state.update_data(last_bot_msg_id=sent_msg.message_id)
+        return accumulated
     else:
         try:
             await placeholder.edit_text(accumulated, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
@@ -368,22 +374,12 @@ async def _run_agent_streaming(
     if draft_params is not None and state is not None:
         await state.update_data(cycle_draft_params=draft_params)
         from bot.keyboards.main import cycle_draft_keyboard
-        from bot.helpers import send_and_track
-        await send_and_track(
-            message,
-            "_Нажми кнопку чтобы подтвердить или попросить другой вариант:_",
-            state,
-            reply_markup=cycle_draft_keyboard(),
-        )
-    elif response and "программа создана" in response.lower():
+        from bot.helpers import attach_keyboard
+        await attach_keyboard(message, state, cycle_draft_keyboard())
+    elif response and "программа создана" in response.lower() and state is not None:
         from bot.keyboards.main import after_cycle_create_keyboard
-        from bot.helpers import send_and_track
-        await send_and_track(
-            message,
-            "Готов начать? Нажми кнопку:",
-            state,
-            reply_markup=after_cycle_create_keyboard(),
-        )
+        from bot.helpers import attach_keyboard
+        await attach_keyboard(message, state, after_cycle_create_keyboard())
     return response
 
 

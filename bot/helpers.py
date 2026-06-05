@@ -100,6 +100,36 @@ async def send_and_track(
     return sent
 
 
+async def attach_keyboard(
+    target: Message | CallbackQuery,
+    state: FSMContext,
+    reply_markup: InlineKeyboardMarkup,
+) -> None:
+    """Прикрепить клавиатуру к последнему отслеживаемому сообщению бота (edit_reply_markup).
+
+    Используй вместо send_and_track когда сообщение агента должно ОСТАТЬСЯ видимым,
+    а кнопка лишь добавляется к нему (например, «📋 По программе» после создания программы).
+    Если редактирование не удалось — ничего не делаем (кнопка просто не появится).
+    """
+    if isinstance(target, CallbackQuery):
+        bot = target.bot
+        chat_id = target.message.chat.id
+    else:
+        bot = target.bot
+        chat_id = target.chat.id
+
+    data = await state.get_data()
+    msg_id = data.get("last_bot_msg_id")
+    if not msg_id:
+        return
+    with contextlib.suppress(Exception):
+        await bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=reply_markup,
+        )
+
+
 async def clear_fsm_keep_nav(state: FSMContext) -> None:
     """Очистить FSM state, но сохранить навигационный last_bot_msg_id."""
     data = await state.get_data()

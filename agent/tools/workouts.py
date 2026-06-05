@@ -270,15 +270,18 @@ async def generate_workout_plan(
 
     # Estimate duration and calorie burn from exercise data
     exercises = plan.get("exercises") or []
-    total_seconds = sum(
-        ex.get("sets", 3) * (30 + ex.get("rest_seconds", 90))
-        for ex in exercises
-    )
-    est_duration = round(10 + total_seconds / 60)  # +10 min warmup+cooldown
-    weight_kg = profile.get("weight_kg") or 75
-    est_calories = round(weight_kg * 0.0875 * est_duration)
-    plan["estimated_duration_min"] = est_duration
-    plan["estimated_calories"] = est_calories
+    if exercises:
+        total_seconds = sum(
+            ex.get("sets", 3) * (30 + ex.get("rest_seconds", 90))
+            for ex in exercises
+        )
+        est_duration = round(10 + total_seconds / 60)
+        weight_kg = profile.get("weight_kg") or 75
+        plan["estimated_duration_min"] = est_duration
+        plan["estimated_calories"] = round(weight_kg * 0.0875 * est_duration)
+    else:
+        plan["estimated_duration_min"] = None
+        plan["estimated_calories"] = None
 
     return plan
 
@@ -611,17 +614,20 @@ async def log_workout(
 
     # Resolve active cycle if not provided explicitly
     active_cycle_id = cycle_id
+    cycle_row: dict | None = None  # always initialize to avoid NameError
     if not active_cycle_id:
         cycle_row = await _get_active_cycle_data(user_id)
         if cycle_row:
             active_cycle_id = cycle_row["id"]
 
     if active_cycle_id:
-        cycle_row = cycle_row if not cycle_id else (
-            await (await get_client()).table("training_cycles")
-            .select("current_week,current_session_index")
-            .eq("id", active_cycle_id).single().execute()
-        ).data
+        if cycle_id:
+            # cycle_id was provided directly — load its row
+            cycle_row = (
+                await (await get_client()).table("training_cycles")
+                .select("current_week,current_session_index")
+                .eq("id", active_cycle_id).single().execute()
+            ).data
         if cycle_row:
             record["cycle_id"] = active_cycle_id
             record["cycle_week"] = cycle_row.get("current_week")
@@ -1005,11 +1011,14 @@ async def generate_cycle_preview(
         else:
             phase_groups.append((phase, wk_num, wk_num, theme, labels))
 
+    def _escape_md(text: str) -> str:
+        return text.replace("_", "\\_").replace("*", "\\*")
+
     phase_lines = []
     for phase, start, end, theme, labels in phase_groups:
         phase_label = _PHASE_LABELS.get(phase, phase)
         wk_range = f"Нед. {start}" if start == end else f"Нед. {start}–{end}"
-        sessions_str = " → ".join(labels)
+        sessions_str = " → ".join(_escape_md(lb) for lb in labels)
         phase_lines.append(f"• {wk_range} *({phase_label})*: {theme}\n  _{sessions_str}_")
 
     type_label = {
@@ -1826,15 +1835,18 @@ async def get_next_session_plan(
 
     # Estimate duration and calorie burn
     exercises = plan.get("exercises") or []
-    total_seconds = sum(
-        ex.get("sets", 3) * (30 + ex.get("rest_seconds", 90))
-        for ex in exercises
-    )
-    est_duration = round(10 + total_seconds / 60)
-    weight_kg = profile.get("weight_kg") or 75
-    est_calories = round(weight_kg * 0.0875 * est_duration)
-    plan["estimated_duration_min"] = est_duration
-    plan["estimated_calories"] = est_calories
+    if exercises:
+        total_seconds = sum(
+            ex.get("sets", 3) * (30 + ex.get("rest_seconds", 90))
+            for ex in exercises
+        )
+        est_duration = round(10 + total_seconds / 60)
+        weight_kg = profile.get("weight_kg") or 75
+        plan["estimated_duration_min"] = est_duration
+        plan["estimated_calories"] = round(weight_kg * 0.0875 * est_duration)
+    else:
+        plan["estimated_duration_min"] = None
+        plan["estimated_calories"] = None
 
     return plan
 
@@ -1896,17 +1908,35 @@ async def replace_workout_exercise(
     plan = row.get("plan") or {}
     exercises: list[dict] = plan.get("exercises") or []
     if not exercises:
-        return {"error": "В плане нет упражнений"}
+        return {
+            "error": "no_workout_plan",
+            "message": (
+                "Нет сгенерированного плана тренировки. "
+                "Сначала открой тренировку через «📋 По программе» или запроси тренировку, "
+                "а потом можно будет заменить упражнение."
+            ),
+        }
 
-    # Fuzzy-find old exercise
+    # Fuzzy-find: try substring match in both directions
     old_key = _normalize_key(old_exercise_name)
     match_idx = next(
-        (i for i, ex in enumerate(exercises) if old_key in _normalize_key(ex.get("name", ""))),
+        (
+            i for i, ex in enumerate(exercises)
+            if old_key in _normalize_key(ex.get("name", ""))
+            or _normalize_key(ex.get("name", "")) in old_key
+        ),
         None,
     )
     if match_idx is None:
         names = ", ".join(ex.get("name", "") for ex in exercises)
-        return {"error": f"Упражнение «{old_exercise_name}» не найдено в плане. Есть: {names}"}
+        return {
+            "error": "exercise_not_found",
+            "message": (
+                f"Упражнение «{old_exercise_name}» не найдено в текущем плане тренировки. "
+                f"В плане есть: {names}. "
+                f"Уточни название или попроси заменить одно из перечисленных."
+            ),
+        }
 
     original = exercises[match_idx]
 
@@ -1920,32 +1950,64 @@ async def replace_workout_exercise(
             "rest_seconds": original.get("rest_seconds", 90),
         }
     else:
-        # Auto-select from exercise DB: find muscle group of original exercise
-        orig_key = _normalize_key(original.get("name", ""))
+        # Auto-select from exercise DB: find muscle group of original exercise.
+        # Use first 2 words of the name for matching (handles long descriptive names)
+        orig_words = _normalize_key(original.get("name", "")).split()
+        short_key = " ".join(orig_words[:2]) if len(orig_words) >= 2 else " ".join(orig_words)
         db_match = next(
-            (ex for ex in EXERCISE_DB if orig_key in _normalize_key(ex.name)),
+            (
+                ex for ex in EXERCISE_DB
+                if short_key in _normalize_key(ex.name)
+                or _normalize_key(ex.name) in _normalize_key(original.get("name", ""))
+            ),
             None,
         )
-        muscle_group = db_match.muscle_group if db_match else "chest"
+        if db_match:
+            muscle_group = db_match.muscle_group
+        else:
+            # Fall back to workout plan's focus field (set by get_next_session_plan)
+            muscle_group = plan.get("focus") or "chest"
+            logger.warning(
+                "replace_workout_exercise: '%s' not in EXERCISE_DB, using muscle_group='%s'",
+                original.get("name"), muscle_group,
+            )
 
-        # Load user profile for injury filter and equipment
+        # Load user injuries (equipment is on training_cycles, not users)
         profile_result = (
             await client.table("users")
-            .select("injuries, equipment")
+            .select("injuries")
             .eq("telegram_user_id", telegram_user_id)
             .single()
             .execute()
         )
         profile = profile_result.data or {}
         injuries: list[str] = profile.get("injuries") or []
-        equipment_pref = profile.get("equipment")
-        eq_filter = [equipment_pref] if equipment_pref else None
+
+        # Get equipment preference from the active cycle if available
+        eq_filter: list[str] | None = None
+        try:
+            cycle_result = (
+                await client.table("training_cycles")
+                .select("equipment")
+                .eq("user_id", user_id)
+                .eq("status", "active")
+                .limit(1)
+                .execute()
+            )
+            cycle_rows = cycle_result.data or []
+            if cycle_rows and cycle_rows[0].get("equipment"):
+                eq_filter = [cycle_rows[0]["equipment"]]
+        except Exception:
+            logger.warning(
+                "replace_workout_exercise: failed to fetch active cycle equipment for user %s",
+                telegram_user_id, exc_info=True,
+            )
 
         current_names = {_normalize_key(ex.get("name", "")) for ex in exercises}
         candidates = [
             ex for ex in get_safe_exercises(muscle_group, injuries, equipment=eq_filter, max_count=20)
             if _normalize_key(ex.name) not in current_names
-            and _normalize_key(ex.name) != orig_key
+            and _normalize_key(ex.name) != _normalize_key(original.get("name", ""))
         ]
         if not candidates:
             return {"error": f"Нет доступных замен для «{original['name']}» с учётом оборудования и противопоказаний"}
