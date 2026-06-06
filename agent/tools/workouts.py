@@ -1258,8 +1258,9 @@ async def create_training_cycle(
         await client.table("training_cycles").update({"status": "completed"}).eq(
             "user_id", user_id
         ).eq("status", "active").execute()
-    except Exception:
-        logger.warning("Failed to deactivate old cycle for user %s", telegram_user_id)
+    except Exception as e:
+        logger.exception("Failed to deactivate old cycle for user %s: %s", telegram_user_id, e)
+        return {"error": "Не удалось завершить старый цикл. Попробуй ещё раз через 10 сек."}
 
     title = parsed.get("title") or f"{goal.replace('_', ' ').title()} цикл {weeks} нед."
     schedule = {"weeks": parsed["weeks"]}
@@ -1272,6 +1273,8 @@ async def create_training_cycle(
             "total_weeks": weeks,
             "sessions_per_week": sessions_per_week,
             "schedule": schedule,
+            "current_week": 1,
+            "current_session_index": 0,
         }
         if training_type:
             insert_data["training_type"] = training_type
