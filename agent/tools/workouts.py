@@ -474,6 +474,29 @@ async def log_workout(
         ex for ex in (performance or []) if not ex.get("is_warmup")
     ]
 
+    # Load user bodyweight for bodyweight exercise 1RM calculations
+    profile_result = (
+        await client.table("users")
+        .select("weight_kg")
+        .eq("telegram_user_id", telegram_user_id)
+        .single()
+        .execute()
+    )
+    user_bodyweight: float | None = (profile_result.data or {}).get("weight_kg")
+
+    # Load EXERCISE_DB for bodyweight detection
+    from agent.tools.exercise_db import EXERCISE_DB
+    ex_db_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
+
+    # Enrich performance with effective_weight (for bodyweight exercises)
+    for ex in working_performance:
+        key = ex.get("key", "")
+        db_ex = ex_db_map.get(key)
+        if db_ex and db_ex.uses_bodyweight and ex.get("weight_kg") is None and user_bodyweight:
+            ex["effective_weight"] = user_bodyweight + (ex.get("added_kg") or 0)
+        elif ex.get("weight_kg") is not None:
+            ex["effective_weight"] = ex.get("weight_kg")
+
     # Query previous log BEFORE insert (for suggest_details)
     prev_logs = (
         await client.table("workout_logs")
@@ -484,7 +507,7 @@ async def log_workout(
         .execute()
     ).data or []
     prev_was_as_planned = bool(prev_logs and prev_logs[0].get("done_as_planned"))
-    has_weighted_exercises = bool(working_performance and any(ex.get("weight_kg") is not None for ex in working_performance))
+    has_weighted_exercises = bool(working_performance and any(ex.get("effective_weight") is not None for ex in working_performance))
     suggest_details = done_as_planned and prev_was_as_planned and has_weighted_exercises
 
     # PR detection: load history once, filter in Python (warmups excluded)
@@ -504,20 +527,31 @@ async def log_workout(
             for ex in (log.get("performance") or [])
             if not ex.get("is_warmup")
         ]
+
+        # Enrich historical performance with effective_weight
+        for h in all_past:
+            key = h.get("key") or _normalize_key(h.get("name", ""))
+            db_ex = ex_db_map.get(key)
+            if db_ex and db_ex.uses_bodyweight and h.get("weight_kg") is None and user_bodyweight:
+                h["effective_weight"] = user_bodyweight + (h.get("added_kg") or 0)
+            elif h.get("weight_kg") is not None:
+                h["effective_weight"] = h.get("weight_kg")
+
         for ex in working_performance:
             key = ex.get("key", "")
             same_ex = [h for h in all_past if h.get("key") == key]
-            past_weights = [h["weight_kg"] for h in same_ex if h.get("weight_kg") is not None]
-            ex_weight = ex.get("weight_kg")
+            past_weights = [h.get("effective_weight") for h in same_ex if h.get("effective_weight") is not None]
+            ex_weight = ex.get("effective_weight")
             ex_reps = ex.get("reps_done")
             ex_name = ex.get("name", "")
+
             if ex_weight is not None and (not past_weights or ex_weight > max(past_weights)):
-                pr_notes.append(f"🏆 Рекорд по весу: {ex_name} — {ex_weight}кг!")
+                pr_notes.append(f"🏆 Рекорд по весу: {ex_name} — {ex_weight:.1f}кг!")
             elif ex_weight is not None and past_weights:
-                same_weight = [h for h in same_ex if h.get("weight_kg") == ex_weight]
+                same_weight = [h for h in same_ex if abs((h.get("effective_weight") or 0) - ex_weight) < 0.1]
                 past_reps = [h["reps_done"] for h in same_weight if h.get("reps_done") is not None]
                 if past_reps and ex_reps is not None and ex_reps > max(past_reps):
-                    pr_notes.append(f"🏆 Рекорд по повт.: {ex_name} — {ex_weight}кг × {ex_reps}!")
+                    pr_notes.append(f"🏆 Рекорд по повт.: {ex_name} — {ex_weight:.1f}кг × {ex_reps}!")
 
     # Build next_session recommendations (only if workout_id and not done_as_planned)
     next_session: list[dict] = []
@@ -533,9 +567,6 @@ async def log_workout(
         plan_exercises = plan_data.get("exercises", [])
         perf_by_key = {ex.get("key", ""): ex for ex in working_performance}
 
-        from agent.tools.exercise_db import EXERCISE_DB
-        ex_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
-
         for planned_ex in plan_exercises:
             key = _normalize_key(planned_ex.get("name", ""))
             actual = perf_by_key.get(key)
@@ -545,7 +576,7 @@ async def log_workout(
             reps_done = actual.get("reps_done") or 0
             weight = actual.get("weight_kg")
 
-            db_ex = ex_map.get(key)
+            db_ex = ex_db_map.get(key)
             is_compound = db_ex.is_compound if db_ex else False
             equipment_set = db_ex.equipment if db_ex else frozenset()
 
@@ -1294,6 +1325,127 @@ async def create_training_cycle(
 
 
 @tool
+async def get_current_max_lifts(telegram_user_id: int, limit: int = 10) -> dict:
+    """Получить топ-упражнения по текущему максимальному весу (рекорды).
+
+    Возвращает лучшие упражнения по максимальному весу/1RM за последние 90 дней.
+    Полезно для быстрого просмотра своих рекордов.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        limit: Максимальное количество упражнений в топе (по умолчанию 10).
+    """
+    user_id = await _get_user_id(telegram_user_id)
+    if not user_id:
+        return {"error": "Пользователь не найден."}
+
+    client = await get_client()
+    since_90d = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+
+    logs_result = (
+        await client.table("workout_logs")
+        .select("completed_at, performance")
+        .eq("user_id", user_id)
+        .gte("completed_at", since_90d)
+        .order("completed_at", desc=True)
+        .execute()
+    )
+    logs = logs_result.data or []
+
+    if not logs:
+        return {
+            "message": "Пока нет записанных тренировок. Начни первую — и рекорды заполнятся!",
+            "max_lifts": [],
+        }
+
+    # Load bodyweight for bodyweight exercise calculations
+    profile_result = (
+        await client.table("users")
+        .select("weight_kg")
+        .eq("telegram_user_id", telegram_user_id)
+        .single()
+        .execute()
+    )
+    user_bodyweight: float | None = (profile_result.data or {}).get("weight_kg")
+
+    # Load EXERCISE_DB for bodyweight detection
+    from agent.tools.exercise_db import EXERCISE_DB
+    ex_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
+
+    # Aggregate max weight per exercise
+    max_by_exercise: dict[str, dict] = {}
+    for log in logs:
+        for ex in (log.get("performance") or []):
+            if ex.get("is_warmup"):
+                continue
+            key = ex.get("key") or _normalize_key(ex.get("name", ""))
+            name = ex.get("name", key)
+            reps = ex.get("reps_done") or 0
+
+            # Calculate effective weight
+            effective_w: float | None = None
+            w = ex.get("weight_kg")
+            db_ex = ex_map.get(key)
+            is_bw = db_ex.uses_bodyweight if db_ex else False
+
+            if w is not None and w > 0:
+                effective_w = w
+            elif is_bw and user_bodyweight:
+                effective_w = user_bodyweight + (ex.get("added_kg") or 0)
+            elif ex.get("added_kg") and user_bodyweight:
+                effective_w = user_bodyweight + ex.get("added_kg")
+
+            # Calculate 1RM
+            one_rm: float | None = None
+            if effective_w and reps > 0:
+                one_rm = _calc_1rm(effective_w, reps)
+
+            # Keep max
+            if key not in max_by_exercise:
+                max_by_exercise[key] = {
+                    "name": name,
+                    "weight_kg": w,
+                    "reps_done": reps,
+                    "effective_weight": effective_w,
+                    "estimated_1rm": one_rm,
+                    "date": log["completed_at"][:10],
+                }
+            else:
+                current_1rm = max_by_exercise[key].get("estimated_1rm") or 0
+                new_1rm = one_rm or 0
+                if new_1rm > current_1rm:
+                    max_by_exercise[key] = {
+                        "name": name,
+                        "weight_kg": w,
+                        "reps_done": reps,
+                        "effective_weight": effective_w,
+                        "estimated_1rm": one_rm,
+                        "date": log["completed_at"][:10],
+                    }
+
+    # Sort by 1RM and return top
+    sorted_lifts = sorted(
+        max_by_exercise.values(),
+        key=lambda x: (x.get("estimated_1rm") or 0),
+        reverse=True,
+    )[:limit]
+
+    return {
+        "max_lifts": [
+            {
+                "name": lift["name"],
+                "max_weight_kg": round(lift["effective_weight"], 1) if lift["effective_weight"] else None,
+                "estimated_1rm": round(lift["estimated_1rm"], 1) if lift["estimated_1rm"] else None,
+                "reps_at_max": lift["reps_done"],
+                "date": lift["date"],
+            }
+            for lift in sorted_lifts
+        ],
+        "total_exercises_tracked": len(max_by_exercise),
+    }
+
+
+@tool
 async def get_exercise_history(
     telegram_user_id: int,
     exercise_name: str,
@@ -1438,27 +1590,47 @@ async def get_training_roadmap(telegram_user_id: int) -> dict:
             continue
 
         display_name = history_points[-1].get("name") or key
+
+        # Calculate effective weights (for bodyweight exercises too)
+        db_ex = ex_map.get(key)
+        is_bodyweight = db_ex.uses_bodyweight if db_ex else False
+
+        effective_weights = []
+        for p in history_points:
+            w = p.get("weight_kg")
+            if w is not None:
+                effective_weights.append(w)
+            elif is_bodyweight and bodyweight_kg:
+                effective_weights.append(bodyweight_kg + (p.get("added_kg") or 0))
+
         weights = [p["weight_kg"] for p in history_points if p.get("weight_kg") is not None]
 
-        if len(weights) >= 2:
-            delta = round(weights[-1] - weights[0], 2)
+        # Calculate trend based on effective_weights (includes bodyweight)
+        if len(effective_weights) >= 2:
+            delta = round(effective_weights[-1] - effective_weights[0], 2)
             if delta > 0:
                 trend = f"↑ +{delta}кг"
             elif delta < 0:
                 trend = f"↓ {delta}кг"
             else:
                 trend = "→ без изменений"
-        elif weights:
+        elif effective_weights:
             trend = "данных пока мало"
         else:
             trend = "вес не фиксировался"
 
         next_target = None
+        next_target_reps = None
         if weights:
             db_ex = ex_map.get(key)
             is_compound = db_ex.is_compound if db_ex else False
             increment = _INCREMENT_COMPOUND if is_compound else _INCREMENT_ISOLATION
             next_target = round(weights[-1] + increment, 2)
+        elif key_data[key]:  # Bodyweight без weight_kg
+            # For bodyweight exercises, suggest +2 reps on next session
+            last_reps = key_data[key][-1].get("reps_done")
+            if last_reps:
+                next_target_reps = last_reps + 2
 
         # ── 1RM + analytics ─────────────────────────────────────────────
         one_rm_series: list[float] = []
@@ -1564,6 +1736,7 @@ async def get_training_roadmap(telegram_user_id: int) -> dict:
             ],
             "trend": trend,
             "next_target": next_target,
+            "next_target_reps": next_target_reps,  # For bodyweight exercises
             "sessions_count": len(history_points),
             # 1RM analytics
             "estimated_1rm": estimated_1rm,
