@@ -38,10 +38,11 @@ app.add_middleware(
         "https://t.me",
         "http://localhost:3000",  # Local development
         "https://fitnessai-webapp.vercel.app",  # Production Web App
+        "https://web-xarialls-projects.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-Telegram-Init-Data"],
 )
 
 # Include routers

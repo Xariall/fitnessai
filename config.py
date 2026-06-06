@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     max_requests_per_day: int = 0
 
     # URL Telegram Web App для рекордов
-    web_app_url: str = "https://fitnessai-webapp.vercel.app/records"
+    web_app_url: str = "https://web-xarialls-projects.vercel.app/records"
 
     @field_validator("supabase_url")
     @classmethod
