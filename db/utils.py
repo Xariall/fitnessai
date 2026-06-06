@@ -10,7 +10,9 @@ async def get_user_id(telegram_user_id: int) -> Optional[str]:
         await client.table("users")
         .select("id")
         .eq("telegram_user_id", telegram_user_id)
-        .single()
+        .maybe_single()
         .execute()
     )
-    return result.data["id"] if result.data else None
+    if result is None or result.data is None:
+        return None
+    return result.data.get("id")

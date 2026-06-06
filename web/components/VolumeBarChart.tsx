@@ -10,32 +10,18 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-
-const MUSCLE_COLORS: Record<string, string> = {
-  chest: '#ef4444',
-  back: '#3b82f6',
-  legs: '#10b981',
-  shoulders: '#f59e0b',
-  arms: '#a855f7',
-  core: '#6366f1',
-  cardio: '#14b8a6',
-  other: '#94a3b8',
-}
+import { MUSCLE_GROUP_LABELS, MUSCLE_GROUP_COLORS, formatVolume } from '@/lib/constants'
+import type { WeeklyVolumePoint } from '@/lib/types'
 
 interface Props {
-  data: Array<{
-    weekKey: string
-    weekStart: string
-    byMuscleGroup: Record<string, number>
-    total: number
-  }>
+  data: WeeklyVolumePoint[]
 }
 
 export function VolumeBarChart({ data }: Props) {
   if (data.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center text-slate-500">
-        No weekly data available
+      <div className="h-48 flex items-center justify-center text-slate-400 text-sm">
+        Нет данных за этот период
       </div>
     )
   }
@@ -54,35 +40,40 @@ export function VolumeBarChart({ data }: Props) {
   }))
 
   return (
-    <ResponsiveContainer width="100%" height={350}>
-      <BarChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+    <ResponsiveContainer width="100%" height={320}>
+      <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
         <XAxis
           dataKey="week"
-          tick={{ fontSize: 12 }}
+          tick={{ fontSize: 11 }}
           stroke="#94a3b8"
         />
         <YAxis
-          tick={{ fontSize: 12 }}
+          tick={{ fontSize: 11 }}
           stroke="#94a3b8"
-          label={{ value: 'Volume (kg)', angle: -90, position: 'insideLeft' }}
         />
         <Tooltip
           contentStyle={{
             background: '#f8fafc',
             border: '1px solid #e2e8f0',
-            borderRadius: '6px',
+            borderRadius: '8px',
             fontSize: '12px',
           }}
-          formatter={(value: any) => `${Math.round(value)} kg`}
+          formatter={(value: number, name: string) => [
+            formatVolume(value),
+            MUSCLE_GROUP_LABELS[name] || name,
+          ]}
         />
-        <Legend />
+        <Legend
+          formatter={(value: string) => MUSCLE_GROUP_LABELS[value] || value}
+          wrapperStyle={{ fontSize: '12px' }}
+        />
         {Array.from(allGroups).map(group => (
           <Bar
             key={group}
             dataKey={group}
             stackId="volume"
-            fill={MUSCLE_COLORS[group] || '#94a3b8'}
+            fill={MUSCLE_GROUP_COLORS[group] || '#94a3b8'}
             name={group}
           />
         ))}

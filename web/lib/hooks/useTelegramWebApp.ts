@@ -3,17 +3,26 @@
 import { useState, useEffect } from 'react'
 import { getTelegramWebApp, TelegramWebApp } from '../telegram'
 
+const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID
+
 export function useTelegramWebApp(): TelegramWebApp | null {
   const [webApp, setWebApp] = useState<TelegramWebApp | null>(null)
 
   useEffect(() => {
-    // Small delay to ensure Telegram SDK is loaded
     const timer = setTimeout(() => {
       const app = getTelegramWebApp()
-      setWebApp(app)
 
-      if (!app) {
-        console.warn('Telegram WebApp not available (may be in web view)')
+      if (app) {
+        setWebApp(app)
+        return
+      }
+
+      // Dev fallback: use env variable for testing outside Telegram
+      if (DEV_USER_ID) {
+        setWebApp({
+          userId: Number(DEV_USER_ID),
+          initData: '',
+        })
       }
     }, 100)
 

@@ -7,6 +7,8 @@ from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 router = Router()
 
@@ -15,22 +17,20 @@ router = Router()
 async def cmd_records(message: types.Message) -> None:
     """
     Show personal training records dashboard.
-    Opens Telegram Web App with max lifts, weekly volume, and 12-week recap.
+    Opens Telegram Web App with personal records, weekly volume, and 12-week recap.
     """
-    web_app_url = "https://fitnessai-webapp.vercel.app/records"
-
     button = InlineKeyboardButton(
-        text="📊 View My Records",
-        web_app=WebAppInfo(url=web_app_url),
+        text="📊 Мои рекорды",
+        web_app=WebAppInfo(url=settings.web_app_url),
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[button]])
 
     await message.answer(
-        "💪 *Your Training Records*\n\n"
-        "View your personal records in an interactive dashboard:\n"
-        "✓ Max lifts per exercise\n"
-        "✓ Weekly volume progression by muscle group\n"
-        "✓ 12-week recap with deltas\n",
+        "📊 *Твои тренировочные рекорды*\n\n"
+        "Открой дашборд и посмотри:\n"
+        "• Прогрессия нагрузки по упражнениям\n"
+        "• Недельный объём по группам мышц\n"
+        "• Итоги за 12 недель\n",
         reply_markup=keyboard,
         parse_mode="Markdown",
     )

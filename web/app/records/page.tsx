@@ -5,38 +5,57 @@ import { RecordsDashboard } from '@/components/RecordsDashboard'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { useTelegramWebApp } from '@/lib/hooks/useTelegramWebApp'
-import { fetchRecords } from '@/lib/api'
+import { fetchRecords, ApiError } from '@/lib/api'
+import type { RecordsData } from '@/lib/types'
 
 export default function RecordsPage() {
   const webApp = useTelegramWebApp()
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<RecordsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const loadData = async (userId: number, initData?: string) => {
+    try {
+      setLoading(true)
+      setError(null)
+      const records = await fetchRecords(userId, initData)
+      setData(records)
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        setError(err.message)
+      } else if (err instanceof Error) {
+        setError(err.message)
+      } else {
+        setError('Ошибка загрузки данных')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!webApp?.userId) return
-
-    const loadData = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const records = await fetchRecords(webApp.userId)
-        setData(records)
-      } catch (err: any) {
-        setError(err.message || 'Failed to load records')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    // Small delay to ensure Telegram SDK is ready
-    const timer = setTimeout(loadData, 500)
-    return () => clearTimeout(timer)
+    loadData(webApp.userId, webApp.initData)
   }, [webApp?.userId])
 
   if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} />
-  if (!data) return <ErrorBanner message="No data received" />
 
-  return <RecordsDashboard data={data} />
+  if (error) {
+    return (
+      <ErrorBanner
+        message={error}
+        onRetry={webApp?.userId ? () => loadData(webApp.userId, webApp.initData) : undefined}
+      />
+    )
+  }
+
+  if (!data) return <ErrorBanner message="Нет данных" />
+
+  return (
+    <RecordsDashboard
+      data={data}
+      userId={webApp!.userId}
+      initData={webApp?.initData}
+    />
+  )
 }

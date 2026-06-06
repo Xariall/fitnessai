@@ -7,8 +7,9 @@ declare global {
     Telegram?: {
       WebApp: {
         initData: string
-        initDataUnsafe: Record<string, any>
+        initDataUnsafe: Record<string, unknown>
         ready: () => void
+        expand: () => void
         close: () => void
       }
     }
@@ -32,12 +33,12 @@ export interface TelegramWebApp {
 export function getTelegramWebApp(): TelegramWebApp | null {
   if (typeof window === 'undefined') return null
 
-  const webApp = window.Telegram?.WebApp
-
-  if (!webApp) return null
-
   try {
+    const webApp = window.Telegram?.WebApp
+    if (!webApp) return null
+
     webApp.ready()
+    webApp.expand()
 
     const initDataUnsafe = webApp.initDataUnsafe || {}
     const user = initDataUnsafe.user as TelegramUser | undefined
@@ -49,8 +50,7 @@ export function getTelegramWebApp(): TelegramWebApp | null {
       user,
       initData: webApp.initData,
     }
-  } catch (err) {
-    console.error('Error initializing Telegram WebApp:', err)
+  } catch {
     return null
   }
 }
