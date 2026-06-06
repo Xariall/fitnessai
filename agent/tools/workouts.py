@@ -55,6 +55,12 @@ def _normalize_key(name: str) -> str:
     return s
 
 
+def _enrich_exercises_with_ru(exercises: list[dict]) -> list[dict]:
+    """Добавить поле name_ru к каждому упражнению. Возвращает новый список (без мутации)."""
+    from agent.tools.exercise_db import get_ru_name
+    return [{**ex, "name_ru": get_ru_name(ex.get("name") or "")} for ex in exercises]
+
+
 def _calc_1rm(weight: float, reps: int) -> float:
     """Формула Эпли: оценка 1RM по рабочему весу и повторениям."""
     if reps <= 0 or weight <= 0:
@@ -283,6 +289,7 @@ async def generate_workout_plan(
         plan["estimated_duration_min"] = None
         plan["estimated_calories"] = None
 
+    plan["exercises"] = _enrich_exercises_with_ru(plan.get("exercises") or [])
     return plan
 
 
@@ -1848,6 +1855,7 @@ async def get_next_session_plan(
         plan["estimated_duration_min"] = None
         plan["estimated_calories"] = None
 
+    plan["exercises"] = _enrich_exercises_with_ru(plan.get("exercises") or [])
     return plan
 
 
@@ -1917,13 +1925,18 @@ async def replace_workout_exercise(
             ),
         }
 
-    # Fuzzy-find: try substring match in both directions
+    # Enrich exercises from DB with Russian names (for matching user's Russian input)
+    exercises = _enrich_exercises_with_ru(exercises)
+
+    # Fuzzy-find: substring match on English name or Russian name in both directions
     old_key = _normalize_key(old_exercise_name)
     match_idx = next(
         (
             i for i, ex in enumerate(exercises)
             if old_key in _normalize_key(ex.get("name", ""))
             or _normalize_key(ex.get("name", "")) in old_key
+            or old_key in _normalize_key(ex.get("name_ru", ""))
+            or _normalize_key(ex.get("name_ru", "")) in old_key
         ),
         None,
     )
@@ -1942,8 +1955,10 @@ async def replace_workout_exercise(
 
     if new_exercise_name:
         # User specified a replacement directly
+        from agent.tools.exercise_db import get_ru_name
         replacement_ex = {
             "name": new_exercise_name,
+            "name_ru": get_ru_name(new_exercise_name),
             "sets": original.get("sets", 3),
             "reps": original.get("reps", "10"),
             "weight_kg": original.get("weight_kg"),
@@ -2013,8 +2028,10 @@ async def replace_workout_exercise(
             return {"error": f"Нет доступных замен для «{original['name']}» с учётом оборудования и противопоказаний"}
 
         chosen = candidates[0]
+        from agent.tools.exercise_db import get_ru_name
         replacement_ex = {
             "name": chosen.name,
+            "name_ru": get_ru_name(chosen.name),
             "sets": original.get("sets", 3),
             "reps": original.get("reps", "10"),
             "weight_kg": original.get("weight_kg"),
