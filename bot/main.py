@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
-from bot.handlers import callbacks, chat, clear, commands, direct, photo, start
+from bot.handlers import callbacks, chat, clear, commands, direct, photo, start, records
 from bot.handlers import inline as inline_handler
 from bot.handlers import settings as settings_handler
 from bot.middlewares.user import UserMiddleware
@@ -34,6 +34,7 @@ _BOT_COMMANDS = [
     BotCommand(command="nutrition", description="План питания на день"),
     BotCommand(command="today", description="Итог питания за сегодня"),
     BotCommand(command="progress", description="Динамика веса"),
+    BotCommand(command="records", description="Мои рекорды"),
     BotCommand(command="profile", description="Мой профиль"),
     BotCommand(command="settings", description="Настройки режима агента"),
     BotCommand(command="menu", description="Главное меню"),
@@ -58,6 +59,7 @@ async def main() -> None:
     dp.include_router(clear.router)
     dp.include_router(settings_handler.router)  # /settings + mode:* callbacks
     dp.include_router(commands.router)
+    dp.include_router(records.router)  # /records command
     dp.include_router(direct.router)
     dp.include_router(callbacks.router)
     dp.include_router(photo.router)       # до chat.router — photo перехватывает F.photo
