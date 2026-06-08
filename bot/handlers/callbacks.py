@@ -16,10 +16,13 @@ from bot.handlers.direct import (
 )
 from bot.helpers import clear_fsm_keep_nav, send_and_track
 from bot.keyboards.main import (
+    cancel_input_keyboard,
     cycle_complete_keyboard,
+    food_input_keyboard,
     no_active_cycle_keyboard,
     nutrition_submenu_keyboard,
     progress_submenu_keyboard,
+    workout_input_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,10 +116,12 @@ async def handle_log_measurement(callback: CallbackQuery, state: FSMContext) -> 
     await callback.answer()
     await clear_fsm_keep_nav(state)
     await state.set_state(WeightFSM.waiting_for_weight)
+    await state.update_data(input_mode="log_weight")
     await send_and_track(
         callback,
         "Сколько ты весишь сейчас? (в кг, например: `82.5`)",
         state,
+        reply_markup=cancel_input_keyboard(),
     )
 
 
@@ -138,10 +143,12 @@ async def handle_add_food_input(callback: CallbackQuery, state: FSMContext) -> N
     await state.update_data(created_at=time.time(), input_mode="add_food")
     await send_and_track(
         callback,
-        "Что ты сегодня ел? 🍽\n"
-        "Напиши продукты и вес — например: «гречка 200 г, курица 150 г, 2 яйца»\n\n"
-        "_Для отмены нажми любую кнопку меню._",
+        "Что ты ел? Напиши в свободной форме: 🍽\n\n"
+        "• Куриная грудь 200г с гречкой 150г\n"
+        "• Протеин 300мл\n"
+        "• Яблоко и банан",
         state,
+        reply_markup=food_input_keyboard(),
     )
 
 
@@ -153,11 +160,12 @@ async def handle_log_workout_input(callback: CallbackQuery, state: FSMContext) -
     await state.update_data(created_at=time.time(), input_mode="log_workout")
     await send_and_track(
         callback,
-        "Как прошла тренировка? 💪\n"
-        "Напиши «всё по плану» или перечисли упражнения с весами — "
-        "например: «жим 80 кг × 10, присед 100 кг × 8»\n\n"
-        "_Для отмены нажми любую кнопку меню._",
+        "Как прошла тренировка? Напиши в свободной форме: 💪\n\n"
+        "• Жим 80кг×5, приседания 100кг×3\n"
+        "• Кардио 30 минут, пульс 145\n"
+        "• Всё по плану",
         state,
+        reply_markup=workout_input_keyboard(),
     )
 
 
@@ -243,10 +251,12 @@ async def handle_after_action(callback: CallbackQuery, state: FSMContext) -> Non
         await callback.answer()
         await clear_fsm_keep_nav(state)
         await state.set_state(WeightFSM.waiting_for_weight)
+        await state.update_data(input_mode="log_weight")
         await send_and_track(
             callback,
             "Сколько ты весишь сейчас? (в кг, например: `82.5`)",
             state,
+            reply_markup=cancel_input_keyboard(),
         )
         return
 
@@ -330,6 +340,75 @@ async def handle_cycle_regenerate_draft(callback: CallbackQuery, state: FSMConte
         f"Вызови generate_cycle_preview с этими параметрами."
     )
     await run_agent(callback, prompt, state=state)
+
+
+_FOOD_PRESETS: dict[str, str] = {
+    "chicken_buckwheat": "Куриная грудь 200г и гречка 150г",
+    "protein": "Протеиновый коктейль 300мл",
+    "salad": "Овощной салат 200г",
+}
+
+_WORKOUT_PRESETS: dict[str, str] = {
+    "cardio": "Кардио 30 минут",
+    "strength": "Силовая тренировка",
+}
+
+
+@router.callback_query(F.data == "input:cancel")
+async def handle_input_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer("Ввод отменён ↩️")
+    data = await state.get_data()
+    input_mode = data.get("input_mode", "add_food")
+    await clear_fsm_keep_nav(state)
+
+    if input_mode == "log_workout":
+        from bot.helpers import get_workout_section
+        text, kb = await get_workout_section(callback.from_user.id)
+        await send_and_track(callback, text, state, reply_markup=kb, allow_edit=True)
+    elif input_mode == "log_weight":
+        await send_and_track(
+            callback, "📊 *Прогресс*", state,
+            reply_markup=progress_submenu_keyboard(), allow_edit=True,
+        )
+    else:
+        await send_and_track(
+            callback, "🥗 *Питание*", state,
+            reply_markup=nutrition_submenu_keyboard(), allow_edit=True,
+        )
+
+
+@router.callback_query(F.data.startswith("preset:food:"))
+async def handle_food_preset(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    preset = callback.data.split(":", 2)[2]
+    food_text = _FOOD_PRESETS.get(preset, preset)
+    await clear_fsm_keep_nav(state)
+    prompt = f"Запиши в дневник питания: {food_text}"
+    await run_agent(callback, prompt, state=state)
+
+
+@router.callback_query(F.data.startswith("preset:workout:"))
+async def handle_workout_preset(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    preset = callback.data.split(":", 2)[2]
+    workout_text = _WORKOUT_PRESETS.get(preset, preset)
+    await clear_fsm_keep_nav(state)
+    prompt = f"Запиши тренировку как выполненную: {workout_text}"
+
+    cycle_complete = False
+    from typing import Any
+
+    def _on_tool_end(tool_name: str, output: Any) -> None:
+        nonlocal cycle_complete
+        if tool_name == "log_workout" and isinstance(output, dict):
+            adv = output.get("cycle_advancement") or {}
+            if isinstance(adv, dict) and adv.get("is_complete"):
+                cycle_complete = True
+
+    await run_agent(callback, prompt, state=state, on_tool_end=_on_tool_end)
+    if cycle_complete:
+        from bot.helpers import send_and_track as _sat
+        await _sat(callback, "_Выбери что делаем дальше:_", state, reply_markup=cycle_complete_keyboard())
 
 
 @router.callback_query()

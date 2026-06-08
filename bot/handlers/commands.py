@@ -129,7 +129,8 @@ async def cmd_help(message: Message, is_registered: bool = False) -> None:
         "/progress — моя динамика веса\n"
         "/profile — мой профиль\n"
         "/menu — главное меню\n"
-        "/clear — сбросить историю диалога"
+        "/clear — сбросить историю диалога\n\n"
+        "💬 Что-то не работает? Пиши в поддержку — @fitnessai\\_support"
     )
     await message.answer(text, parse_mode=ParseMode.MARKDOWN, reply_markup=help_keyboard())
 

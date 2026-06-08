@@ -15,6 +15,7 @@ class ApiError extends Error {
 async function apiFetch<T>(url: string, initData?: string): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
   }
   if (initData) {
     headers['X-Telegram-Init-Data'] = initData
@@ -63,7 +64,7 @@ export async function fetchExerciseProgression(
 
   const response = await fetch(
     `${API_BASE_URL}/api/records/${telegramUserId}/exercise/${encodeURIComponent(exerciseId)}?days=365`,
-    { method: 'GET', headers, signal },
+    { method: 'GET', headers: { ...headers, 'ngrok-skip-browser-warning': 'true' }, signal },
   )
 
   if (!response.ok) {

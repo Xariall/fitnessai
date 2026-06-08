@@ -133,8 +133,8 @@ async def run_agent(
     # ── Budget check ─────────────────────────────────────────────────────────
     if not is_allowed(telegram_user_id, settings.max_requests_per_day):
         await answer_fn(
-            f"⚠️ Дневной лимит запросов ({settings.max_requests_per_day}) исчерпан. "
-            "Попробуй завтра!"
+            f"⚠️ Достиг дневного лимита запросов ({settings.max_requests_per_day}). "
+            "Лимит обновится в полночь — возвращайся завтра! 🕛"
         )
         return None
     increment(telegram_user_id)
@@ -272,18 +272,18 @@ async def run_agent(
         is_unavailable = "503" in err_str or "unavailable" in err_str.lower()
         if is_no_tools:
             logger.error("Model does not support tools: %s", err_str)
-            user_msg = "Что-то пошло не так. Попробуй снова через секунду."
+            user_msg = "Что-то пошло не так. Попробуй ещё раз или напиши /start для перезапуска. 🔄"
         elif is_unavailable:
             logger.warning("Gemini 503 for user %s: %s", telegram_user_id, err_str)
-            user_msg = "⚠️ AI-сервис временно перегружен. Попробуй через 10–30 секунд."
+            user_msg = "Нейросеть временно перегружена. Подожди 1–2 минуты и попробуй снова — обычно это быстро проходит. ⏳"
         elif is_quota:
             if "PerDay" in err_str or "per_day" in err_str.lower():
                 user_msg = "⚠️ Дневной лимит AI-запросов исчерпан. Попробуй завтра или подключи платный тариф в Google AI Studio."
             else:
-                user_msg = "⚠️ Слишком много запросов — подожди минуту и попробуй снова."
+                user_msg = "⚠️ Слишком много запросов — подожди минуту и попробуй снова. ⏳"
         else:
             logger.exception("Streaming error for user %s", telegram_user_id)
-            user_msg = "Что-то пошло не так. Попробуй снова через секунду."
+            user_msg = "Что-то пошло не так. Попробуй ещё раз или напиши /start для перезапуска. 🔄"
         with contextlib.suppress(Exception):
             await placeholder.edit_text(user_msg)
         return None
@@ -298,7 +298,7 @@ async def run_agent(
         accumulated = accumulated.replace(match.group(0), "").strip()
 
     if not accumulated:
-        await _safe_edit(placeholder, "Не удалось получить ответ. Попробуй ещё раз.")
+        await _safe_edit(placeholder, "Не удалось получить ответ. Попробуй ещё раз или напиши /start для перезапуска. 🔄")
         return None
 
     if meme_url:

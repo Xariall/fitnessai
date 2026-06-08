@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Default light theme — overridden by Telegram CSS vars when available */
+  --tg-theme-bg-color: #f8fafc;
+  --tg-theme-text-color: #0f172a;
+  --tg-theme-hint-color: #64748b;
+  --tg-theme-link-color: #3b82f6;
+  --tg-theme-button-color: #3b82f6;
+  --tg-theme-button-text-color: #ffffff;
+  --tg-theme-secondary-bg-color: #ffffff;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -18,18 +29,21 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Use Telegram theme background */
+  background-color: var(--tg-theme-bg-color, #f8fafc);
+  color: var(--tg-theme-text-color, #0f172a);
 }
 
 @layer components {
   .card {
-    @apply bg-white rounded-lg shadow border border-slate-200;
+    @apply bg-white rounded-xl shadow-sm border border-slate-100;
   }
 
   .card-header {
-    @apply p-6 border-b border-slate-200;
+    @apply p-4 border-b border-slate-100;
   }
 
   .card-content {
-    @apply p-6;
+    @apply p-4;
   }
 }

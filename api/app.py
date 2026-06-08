@@ -33,16 +33,10 @@ app = FastAPI(
 # Telegram Web App can be opened from various origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://web.telegram.org",
-        "https://t.me",
-        "http://localhost:3000",  # Local development
-        "https://fitnessai-webapp.vercel.app",  # Production Web App
-        "https://web-xarialls-projects.vercel.app",
-    ],
+    allow_origins=["*"],  # TODO: restrict in production
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Telegram-Init-Data"],
+    allow_headers=["Content-Type", "Authorization", "X-Telegram-Init-Data", "ngrok-skip-browser-warning"],
 )
 
 # Include routers

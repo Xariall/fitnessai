@@ -2,7 +2,7 @@
 
 export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`bg-white rounded-lg shadow border border-slate-200 ${className}`}>
+    <div className={`bg-white rounded-xl shadow-sm border border-slate-100 ${className}`}>
       {children}
     </div>
   )

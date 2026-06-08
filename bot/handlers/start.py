@@ -72,6 +72,13 @@ def _parse_injuries(text: str) -> list[str]:
     return result
 
 
+def _step_header(step: int, total: int = 7) -> str:
+    """Визуальный индикатор прогресса онбординга."""
+    filled = round(step / total * 10)
+    bar = "▓" * filled + "░" * (10 - filled)
+    return f"{bar}  Шаг {step} из {total}\n\n"
+
+
 class OnboardingFSM(StatesGroup):
     name = State()
     age = State()
@@ -93,10 +100,9 @@ async def cmd_start(message: Message, state: FSMContext, is_registered: bool = F
         return
 
     await message.answer(
-        "👋 Привет! Я FitnessAI — твой персональный тренер.\n\n"
-        "Помогу составить план тренировок и питания,\n"
-        "считать калории и следить за прогрессом.\n\n"
-        "Для начала — пара вопросов. Займёт 1 минуту 🎯",
+        "Привет! Я FitnessAI — персональный AI-тренер в Telegram. 👋\n\n"
+        "Составлю план тренировок и питания, посчитаю КБЖУ и буду отслеживать твой прогресс.\n\n"
+        "Настройка займёт 2 минуты — давай начнём! 🚀",
         reply_markup=start_keyboard(),
     )
 
@@ -104,7 +110,7 @@ async def cmd_start(message: Message, state: FSMContext, is_registered: bool = F
 @router.callback_query(F.data == "onboarding:start")
 async def onboarding_start(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer("Как тебя зовут?")
+    await callback.message.answer(f"{_step_header(1)}Как тебя зовут?")
     await state.set_state(OnboardingFSM.name)
     await callback.answer()
 
@@ -113,7 +119,7 @@ async def onboarding_start(callback: CallbackQuery, state: FSMContext) -> None:
 async def onboarding_name(message: Message, state: FSMContext) -> None:
     await state.update_data(name=message.text)
     await message.answer(
-        "Какая у тебя основная цель?",
+        f"{_step_header(2)}Какая у тебя основная цель?",
         reply_markup=goal_keyboard(),
     )
     await state.set_state(OnboardingFSM.goal)
@@ -131,7 +137,7 @@ async def onboarding_goal_callback(callback: CallbackQuery, state: FSMContext) -
     await state.update_data(goal=goal)
     await callback.message.edit_text(f"Цель: {label} ✅")
     await callback.message.answer(
-        "Как бы ты описал свою текущую активность?",
+        f"{_step_header(3)}Как бы ты описал свою текущую активность?",
         reply_markup=activity_keyboard(),
     )
     await state.set_state(OnboardingFSM.activity_level)
@@ -149,7 +155,7 @@ async def onboarding_activity_callback(callback: CallbackQuery, state: FSMContex
     label = ACTIVITY_LABELS.get(activity, activity)
     await state.update_data(activity_level=activity)
     await callback.message.edit_text(f"Активность: {label} ✅")
-    await callback.message.answer("Сколько тебе лет?")
+    await callback.message.answer(f"{_step_header(4)}Сколько тебе лет?")
     await state.set_state(OnboardingFSM.age)
     await callback.answer()
 
@@ -164,7 +170,7 @@ async def onboarding_age(message: Message, state: FSMContext) -> None:
         await message.answer("Возраст должен быть от 10 до 120 лет. Попробуй снова:")
         return
     await state.update_data(age=age)
-    await message.answer("Какой у тебя рост? (в см, например: 178)")
+    await message.answer(f"{_step_header(5)}Какой у тебя рост? (в см, например: 178)")
     await state.set_state(OnboardingFSM.height)
 
 
@@ -179,7 +185,7 @@ async def onboarding_height(message: Message, state: FSMContext) -> None:
         await message.answer("Рост должен быть от 100 до 250 см. Попробуй снова:")
         return
     await state.update_data(height_cm=height)
-    await message.answer("Какой сейчас вес? (в кг, например: 82.5)")
+    await message.answer(f"{_step_header(6)}Какой сейчас вес? (в кг, например: 82.5)")
     await state.set_state(OnboardingFSM.weight)
 
 
@@ -197,7 +203,7 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
     await state.update_data(weight_kg=weight)
     await state.set_state(OnboardingFSM.injuries)
     await message.answer(
-        "Есть травмы или противопоказания? 🩺\n\n"
+        f"{_step_header(7)}Есть травмы или противопоказания? 🩺\n\n"
         "Напиши что беспокоит — например: «колено, поясница».\n"
         "Буду учитывать при генерации тренировок.\n\n"
         "_Если всё в порядке — нажми кнопку ниже:_",

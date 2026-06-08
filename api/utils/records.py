@@ -156,6 +156,7 @@ async def get_max_lifts_internal(
                     "exercise_id": ex_key,
                     "name": ex_name,
                     "name_ru": get_ru_name(ex_name),
+                    "muscleGroup": _classify_muscle_group(ex_name),
                     "weight_kg": round(raw_weight, 1),
                     "reps_done": reps_done,
                     "effective_weight": round(effective_weight, 1),

@@ -1,4 +1,6 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+
+from config import settings
 
 
 _BACK_LABELS: dict[str, str] = {
@@ -98,6 +100,10 @@ def nutrition_submenu_keyboard() -> InlineKeyboardMarkup:
 def progress_submenu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🏆 Мои рекорды",
+                web_app=WebAppInfo(url=settings.web_app_url),
+            )],
             [InlineKeyboardButton(text="📝 Записать замер", callback_data="submenu:log_measurement")],
             [InlineKeyboardButton(text="📈 Моя динамика", callback_data="submenu:my_dynamics")],
             [InlineKeyboardButton(text="📊 Статистика", callback_data="after:stats")],
@@ -262,6 +268,43 @@ def after_weight_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="📈 Моя динамика", callback_data="after:dynamics"),
                 _back_button("progress"),
+            ],
+        ]
+    )
+
+
+def cancel_input_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="❌ Отмена", callback_data="input:cancel"),
+        ]]
+    )
+
+
+def food_input_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🍗 Курица + гречка", callback_data="preset:food:chicken_buckwheat"),
+                InlineKeyboardButton(text="🥤 Протеин 300мл", callback_data="preset:food:protein"),
+            ],
+            [
+                InlineKeyboardButton(text="🥗 Овощной салат", callback_data="preset:food:salad"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="input:cancel"),
+            ],
+        ]
+    )
+
+
+def workout_input_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🏃 Кардио 30 мин", callback_data="preset:workout:cardio"),
+                InlineKeyboardButton(text="💪 Силовая тренировка", callback_data="preset:workout:strength"),
+            ],
+            [
+                InlineKeyboardButton(text="❌ Отмена", callback_data="input:cancel"),
             ],
         ]
     )

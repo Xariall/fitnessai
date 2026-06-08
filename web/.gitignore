@@ -34,3 +34,4 @@ lerna-debug.log*
 .vscode
 *.swp
 *.swo
+.vercel

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getTelegramWebApp, TelegramWebApp } from '../telegram'
+import { getTelegramWebApp, applyTelegramTheme, TelegramWebApp } from '../telegram'
 
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID
 
@@ -13,6 +13,7 @@ export function useTelegramWebApp(): TelegramWebApp | null {
       const app = getTelegramWebApp()
 
       if (app) {
+        applyTelegramTheme()
         setWebApp(app)
         return
       }
