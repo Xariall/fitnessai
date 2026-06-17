@@ -671,15 +671,38 @@ async def log_workout(
             record["cycle_week"] = cycle_row.get("current_week")
             record["cycle_session_index"] = cycle_row.get("current_session_index")
 
-    await client.table("workout_logs").insert(record).execute()
+    # Upsert logic: if a log for the same workout_id was created in the last 8 hours,
+    # UPDATE it (user clarified details) instead of INSERT a duplicate.
+    existing_log_id: str | None = None
+    if workout_id:
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=8)).isoformat()
+        existing_rows = (
+            await client.table("workout_logs")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("workout_id", workout_id)
+            .gte("completed_at", cutoff)
+            .order("completed_at", desc=True)
+            .limit(1)
+            .execute()
+        ).data or []
+        if existing_rows:
+            existing_log_id = existing_rows[0]["id"]
 
-    # Advance cycle position after insert
     cycle_advancement = None
-    if active_cycle_id and advance_cycle:
-        cycle_advancement = await _advance_cycle_position(user_id, active_cycle_id)
-        if cycle_advancement.get("reason") == "concurrent_update":
-            # Retry once
+    if existing_log_id:
+        # Update existing record — user is providing real details for the same session
+        await client.table("workout_logs").update(record).eq("id", existing_log_id).execute()
+        # Cycle was already advanced on the first insert — skip re-advancing
+    else:
+        await client.table("workout_logs").insert(record).execute()
+        # Advance cycle position after first insert
+        if active_cycle_id and advance_cycle:
             cycle_advancement = await _advance_cycle_position(user_id, active_cycle_id)
+            if cycle_advancement.get("reason") == "concurrent_update":
+                # Retry once
+                cycle_advancement = await _advance_cycle_position(user_id, active_cycle_id)
 
     return {
         "status": "logged",
