@@ -4,7 +4,7 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import Message
 
-from db.client import get_client
+from db.client import fetchrow
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +24,9 @@ class UserMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         telegram_user_id = event.from_user.id
-        client = await get_client()
-        result = (
-            await client.table("users")
-            .select("id")
-            .eq("telegram_user_id", telegram_user_id)
-            .execute()
+        row = await fetchrow(
+            "SELECT id FROM users WHERE telegram_user_id = $1", telegram_user_id
         )
 
-        data["is_registered"] = bool(result.data)
+        data["is_registered"] = bool(row)
         return await handler(event, data)

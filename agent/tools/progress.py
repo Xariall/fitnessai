@@ -4,7 +4,7 @@ from typing import Optional
 
 from langchain_core.tools import tool
 
-from db.client import get_client
+from db.client import execute, fetch, fetchrow
 from db.utils import get_user_id as _get_user_id
 
 logger = logging.getLogger(__name__)
@@ -21,30 +21,29 @@ async def log_progress(
     if not user_id:
         return "Пользователь не найден."
 
-    client = await get_client()
-
     # Получить предыдущий замер для сравнения
-    prev_result = (
-        await client.table("progress_logs")
-        .select("weight_kg")
-        .eq("user_id", user_id)
-        .order("measured_at", desc=True)
-        .limit(1)
-        .execute()
+    prev_row = await fetchrow(
+        "SELECT weight_kg FROM progress_logs WHERE user_id = $1 "
+        "ORDER BY measured_at DESC LIMIT 1",
+        user_id,
     )
-    prev_weight: Optional[float] = prev_result.data[0]["weight_kg"] if prev_result.data else None
+    prev_weight: Optional[float] = prev_row["weight_kg"] if prev_row else None
 
-    await client.table("progress_logs").insert(
-        {
-            "user_id": user_id,
-            "weight_kg": weight_kg,
-            "notes": notes,
-            "measured_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).execute()
+    await execute(
+        "INSERT INTO progress_logs (user_id, weight_kg, notes, measured_at) "
+        "VALUES ($1, $2, $3, $4)",
+        user_id,
+        weight_kg,
+        notes,
+        datetime.now(timezone.utc),
+    )
 
     # Обновить вес в профиле
-    await client.table("users").update({"weight_kg": weight_kg}).eq("telegram_user_id", telegram_user_id).execute()
+    await execute(
+        "UPDATE users SET weight_kg = $1 WHERE telegram_user_id = $2",
+        weight_kg,
+        telegram_user_id,
+    )
 
     if prev_weight is not None:
         delta = round(weight_kg - prev_weight, 1)
@@ -67,26 +66,20 @@ async def get_weekly_summary(telegram_user_id: int) -> dict:
     if not user_id:
         return {"error": "Пользователь не найден."}
 
-    client = await get_client()
-    week_start = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    week_start = datetime.now(timezone.utc) - timedelta(days=7)
 
-    workouts_result = (
-        await client.table("workout_logs")
-        .select("id, completed_at")
-        .eq("user_id", user_id)
-        .gte("completed_at", week_start)
-        .execute()
+    workouts = await fetch(
+        "SELECT id, completed_at FROM workout_logs WHERE user_id = $1 AND completed_at >= $2",
+        user_id,
+        week_start,
     )
-    workouts = workouts_result.data or []
 
-    food_result = (
-        await client.table("food_logs")
-        .select("calories, protein, fat, carbs, logged_at")
-        .eq("user_id", user_id)
-        .gte("logged_at", week_start)
-        .execute()
+    food_logs = await fetch(
+        "SELECT calories, protein, fat, carbs, logged_at FROM food_logs "
+        "WHERE user_id = $1 AND logged_at >= $2",
+        user_id,
+        week_start,
     )
-    food_logs = food_result.data or []
 
     # Group nutrition by day
     days_data: dict[str, dict] = {}
@@ -103,15 +96,12 @@ async def get_weekly_summary(telegram_user_id: int) -> dict:
     avg_calories = round(sum(d["calories"] for d in days_data.values()) / n_days) if n_days else 0
     avg_protein = round(sum(d["protein"] for d in days_data.values()) / n_days, 1) if n_days else 0
 
-    weight_result = (
-        await client.table("progress_logs")
-        .select("weight_kg, measured_at")
-        .eq("user_id", user_id)
-        .gte("measured_at", week_start)
-        .order("measured_at")
-        .execute()
+    weight_logs = await fetch(
+        "SELECT weight_kg, measured_at FROM progress_logs "
+        "WHERE user_id = $1 AND measured_at >= $2 ORDER BY measured_at",
+        user_id,
+        week_start,
     )
-    weight_logs = weight_result.data or []
     weight_change = None
     if len(weight_logs) >= 2:
         weight_change = round(weight_logs[-1]["weight_kg"] - weight_logs[0]["weight_kg"], 1)
@@ -164,17 +154,13 @@ async def get_progress_summary(telegram_user_id: int, days: int = 30) -> dict:
     if not user_id:
         return {}
 
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    client = await get_client()
-    result = (
-        await client.table("progress_logs")
-        .select("weight_kg, notes, measured_at")
-        .eq("user_id", user_id)
-        .gte("measured_at", since)
-        .order("measured_at")
-        .execute()
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    logs = await fetch(
+        "SELECT weight_kg, notes, measured_at FROM progress_logs "
+        "WHERE user_id = $1 AND measured_at >= $2 ORDER BY measured_at",
+        user_id,
+        since,
     )
-    logs = result.data or []
 
     if not logs:
         return {"message": f"Нет замеров за последние {days} дней.", "logs": []}

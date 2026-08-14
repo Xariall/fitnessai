@@ -21,7 +21,7 @@ from bot.keyboards.main import (
     nutrition_submenu_keyboard,
     progress_submenu_keyboard,
 )
-from db.client import get_client
+from db.client import execute, fetch, fetchrow
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -45,15 +45,9 @@ def _pct(consumed: float, norm: float) -> int:
 
 
 async def _get_user(telegram_user_id: int) -> Optional[dict]:
-    client = await get_client()
-    result = (
-        await client.table("users")
-        .select("*")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
+    return await fetchrow(
+        "SELECT * FROM users WHERE telegram_user_id = $1", telegram_user_id
     )
-    return result.data
 
 
 def _calc_norms(user: dict) -> dict:
@@ -77,16 +71,12 @@ async def show_today_summary(message: Message, telegram_user_id: int, state: FSM
             await send_and_track(message, "Профиль не найден. Начни с /start.", state)
             return
 
-        client = await get_client()
         today = date.today().isoformat()
-        logs_result = (
-            await client.table("food_logs")
-            .select("calories, protein, fat, carbs")
-            .eq("user_id", user["id"])
-            .gte("logged_at", f"{today}T00:00:00")
-            .execute()
+        logs = await fetch(
+            "SELECT calories, protein, fat, carbs FROM food_logs "
+            "WHERE user_id = $1 AND logged_at >= $2",
+            user["id"], f"{today}T00:00:00",
         )
-        logs = logs_result.data or []
         norms = _calc_norms(user)
 
         if not logs:
@@ -140,16 +130,14 @@ async def show_workout_history(message: Message, telegram_user_id: int, state: F
             await send_and_track(message, "Профиль не найден. Начни с /start.", state)
             return
 
-        client = await get_client()
-        result = (
-            await client.table("workout_logs")
-            .select("notes, completed_at, workouts(title)")
-            .eq("user_id", user["id"])
-            .order("completed_at", desc=True)
-            .limit(5)
-            .execute()
+        logs = await fetch(
+            "SELECT workout_logs.notes, workout_logs.completed_at, "
+            "workouts.title AS workout_title "
+            "FROM workout_logs LEFT JOIN workouts ON workouts.id = workout_logs.workout_id "
+            "WHERE workout_logs.user_id = $1 "
+            "ORDER BY workout_logs.completed_at DESC LIMIT 5",
+            user["id"],
         )
-        logs = result.data or []
 
         banner = await get_cycle_banner(user["id"])
 
@@ -169,7 +157,7 @@ async def show_workout_history(message: Message, telegram_user_id: int, state: F
         for i, log in enumerate(logs, 1):
             dt = datetime.fromisoformat(log["completed_at"].replace("Z", "+00:00"))
             date_str = dt.astimezone().strftime("%-d %b")
-            title = log.get("workouts", {}).get("title") if log.get("workouts") else None
+            title = log.get("workout_title")
             notes = log.get("notes", "")
 
             if title:
@@ -199,18 +187,13 @@ async def show_progress_dynamics(message: Message, telegram_user_id: int, state:
             await send_and_track(message, "Профиль не найден. Начни с /start.", state)
             return
 
-        client = await get_client()
         since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        result = (
-            await client.table("progress_logs")
-            .select("weight_kg, measured_at")
-            .eq("user_id", user["id"])
-            .gte("measured_at", since)
-            .order("measured_at", desc=True)
-            .limit(10)
-            .execute()
+        logs = await fetch(
+            "SELECT weight_kg, measured_at FROM progress_logs "
+            "WHERE user_id = $1 AND measured_at >= $2 "
+            "ORDER BY measured_at DESC LIMIT 10",
+            user["id"], since,
         )
-        logs = result.data or []
 
         if not logs:
             await send_and_track(
@@ -267,49 +250,36 @@ async def show_stats(message: Message, telegram_user_id: int, state: FSMContext)
             await send_and_track(message, "Профиль не найден. Начни с /start.", state)
             return
 
-        client = await get_client()
         today = date.today().isoformat()
         week_start = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         norms = _calc_norms(user)
 
         # Калории за сегодня
-        today_food = (
-            await client.table("food_logs")
-            .select("calories")
-            .eq("user_id", user["id"])
-            .gte("logged_at", f"{today}T00:00:00")
-            .execute()
-        ).data or []
+        today_food = await fetch(
+            "SELECT calories FROM food_logs WHERE user_id = $1 AND logged_at >= $2",
+            user["id"], f"{today}T00:00:00",
+        )
         today_calories = int(sum(r["calories"] for r in today_food))
 
         # Тренировки сегодня
-        today_workouts = (
-            await client.table("workout_logs")
-            .select("id")
-            .eq("user_id", user["id"])
-            .gte("completed_at", f"{today}T00:00:00")
-            .execute()
-        ).data or []
+        today_workouts = await fetch(
+            "SELECT id FROM workout_logs WHERE user_id = $1 AND completed_at >= $2",
+            user["id"], f"{today}T00:00:00",
+        )
         today_workout_count = len(today_workouts)
 
         # Тренировки за неделю
-        week_workouts = (
-            await client.table("workout_logs")
-            .select("id")
-            .eq("user_id", user["id"])
-            .gte("completed_at", week_start)
-            .execute()
-        ).data or []
+        week_workouts = await fetch(
+            "SELECT id FROM workout_logs WHERE user_id = $1 AND completed_at >= $2",
+            user["id"], week_start,
+        )
         week_workout_count = len(week_workouts)
 
         # Среднее КБЖУ за неделю (по дням)
-        week_food = (
-            await client.table("food_logs")
-            .select("calories, logged_at")
-            .eq("user_id", user["id"])
-            .gte("logged_at", week_start)
-            .execute()
-        ).data or []
+        week_food = await fetch(
+            "SELECT calories, logged_at FROM food_logs WHERE user_id = $1 AND logged_at >= $2",
+            user["id"], week_start,
+        )
         days_calories: dict[str, int] = {}
         for row in week_food:
             day = row["logged_at"][:10]
@@ -317,14 +287,11 @@ async def show_stats(message: Message, telegram_user_id: int, state: FSMContext)
         avg_calories = int(sum(days_calories.values()) / len(days_calories)) if days_calories else 0
 
         # Динамика веса за неделю
-        weight_logs = (
-            await client.table("progress_logs")
-            .select("weight_kg, measured_at")
-            .eq("user_id", user["id"])
-            .gte("measured_at", week_start)
-            .order("measured_at")
-            .execute()
-        ).data or []
+        weight_logs = await fetch(
+            "SELECT weight_kg, measured_at FROM progress_logs "
+            "WHERE user_id = $1 AND measured_at >= $2 ORDER BY measured_at",
+            user["id"], week_start,
+        )
 
         weight_line = ""
         if len(weight_logs) >= 2:
@@ -427,24 +394,21 @@ async def handle_weight_input(message: Message, state: FSMContext) -> None:
             await send_and_track(message, "Профиль не найден. Начни с /start.", state, delete_user_msg=True)
             return
 
-        client = await get_client()
-
-        prev_result = (
-            await client.table("progress_logs")
-            .select("weight_kg")
-            .eq("user_id", user["id"])
-            .order("measured_at", desc=True)
-            .limit(1)
-            .execute()
+        prev_rows = await fetch(
+            "SELECT weight_kg FROM progress_logs WHERE user_id = $1 "
+            "ORDER BY measured_at DESC LIMIT 1",
+            user["id"],
         )
-        prev = prev_result.data[0]["weight_kg"] if prev_result.data else None
+        prev = prev_rows[0]["weight_kg"] if prev_rows else None
 
-        await client.table("progress_logs").insert({
-            "user_id": user["id"],
-            "weight_kg": weight,
-            "measured_at": datetime.now(timezone.utc).isoformat(),
-        }).execute()
-        await client.table("users").update({"weight_kg": weight}).eq("telegram_user_id", telegram_user_id).execute()
+        await execute(
+            "INSERT INTO progress_logs (user_id, weight_kg, measured_at) VALUES ($1, $2, $3)",
+            user["id"], weight, datetime.now(timezone.utc).isoformat(),
+        )
+        await execute(
+            "UPDATE users SET weight_kg = $1 WHERE telegram_user_id = $2",
+            weight, telegram_user_id,
+        )
 
         today_str = datetime.now().strftime("%-d %B %Y")
 

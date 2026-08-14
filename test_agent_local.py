@@ -1,13 +1,13 @@
 """
 Локальное тестирование AI агента без Telegram.
-- db.client._client заменяется моком → load_profile не обращается к Supabase
-- Инструменты (log_food, log_workout и т.д.) тоже используют мок
+- db.client.fetch/fetchrow/execute заменяются моками → load_profile не обращается к Postgres
+- Инструменты (log_food, log_workout и т.д.) тоже используют моки (no-op write, read → users отдаёт профиль, остальное — пусто)
 
 Запуск: python test_agent_local.py
 """
 import asyncio
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 from langchain_core.messages import HumanMessage
 
@@ -31,48 +31,18 @@ MOCK_PROFILE = {
 }
 
 
-def _build_supabase_mock() -> MagicMock:
-    """
-    Мок для Supabase AsyncClient.
-    Поддерживает цепочки: .table(...).select(...).eq(...).single().execute()
-    и вставки: .table(...).insert(...).execute()
-    """
-    profile_result = MagicMock(data=MOCK_PROFILE)
-    empty_result = MagicMock(data=[], count=0)
+async def _mock_fetchrow(query: str, *args):
+    if "FROM users" in query:
+        return dict(MOCK_PROFILE)
+    return None
 
-    def make_builder(final_data=None):
-        result = MagicMock(data=final_data if final_data is not None else [])
-        builder = MagicMock()
-        builder.execute = AsyncMock(return_value=result)
-        builder.single = MagicMock(return_value=MagicMock(
-            execute=AsyncMock(return_value=result)
-        ))
-        builder.eq = MagicMock(return_value=builder)
-        builder.select = MagicMock(return_value=builder)
-        builder.insert = MagicMock(return_value=builder)
-        builder.update = MagicMock(return_value=builder)
-        builder.upsert = MagicMock(return_value=builder)
-        builder.order = MagicMock(return_value=builder)
-        builder.limit = MagicMock(return_value=builder)
-        builder.gte = MagicMock(return_value=builder)
-        builder.lte = MagicMock(return_value=builder)
-        return builder
 
-    users_builder = make_builder(MOCK_PROFILE)
-    # Для single() возвращаем профиль
-    users_builder.single = MagicMock(return_value=MagicMock(
-        execute=AsyncMock(return_value=MagicMock(data=MOCK_PROFILE))
-    ))
+async def _mock_fetch(query: str, *args) -> list[dict]:
+    return []
 
-    client = MagicMock()
 
-    def table_router(name: str):
-        if name == "users":
-            return users_builder
-        return make_builder([])
-
-    client.table = MagicMock(side_effect=table_router)
-    return client
+async def _mock_execute(query: str, *args) -> str:
+    return "OK"
 
 
 async def run_agent(message: str, thread_id: str) -> str:
@@ -88,9 +58,13 @@ async def run_agent(message: str, thread_id: str) -> str:
 
 
 async def main():
-    # Инжектируем мок ДО инициализации графа
+    # Инжектируем моки ДО инициализации графа — все модули делают
+    # `from db.client import fetch, fetchrow, execute` при импорте, поэтому
+    # патчим db.client раньше любого `import agent.graph`.
     import db.client as db_module
-    db_module._client = _build_supabase_mock()
+    db_module.fetch = AsyncMock(side_effect=_mock_fetch)
+    db_module.fetchrow = AsyncMock(side_effect=_mock_fetchrow)
+    db_module.execute = AsyncMock(side_effect=_mock_execute)
 
     from agent.graph import init_graph
     await init_graph()

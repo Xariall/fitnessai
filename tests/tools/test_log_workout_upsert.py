@@ -12,7 +12,8 @@ Test matrix:
   - existing log older than 8h → INSERT (treated as new session)
   - done_as_planned=True first, then real weights → UPDATE replaces performance
 """
-from unittest.mock import AsyncMock, MagicMock, call, patch
+import re
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -22,43 +23,32 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def _exec(data):
-    """Return an AsyncMock execute() that yields `data` once."""
-    return AsyncMock(return_value=MagicMock(data=data))
+def _patches(fetchrow_results: list, fetch_results: list | None = None):
+    """Patch agent.tools.workouts.session_log's fetchrow/fetch/execute.
 
-
-def _chain(execute_results: list):
+    fetchrow_results: values returned by successive fetchrow() calls, in call order.
+    fetch_results: values returned by successive fetch() calls, in call order
+        (defaults to a single empty-list result — most tests only call fetch()
+        once, for PR-detection history).
     """
-    Build a Supabase-style query chain mock.
-
-    All chained methods (select, eq, gte, order, limit, single, insert, update)
-    return the same mock so the chain collapses to a single object.
-    execute() pops values from *execute_results* in order.
-    """
-    m = MagicMock()
-    for method in ("select", "eq", "gte", "lte", "order", "limit", "single"):
-        getattr(m, method).return_value = m
-
-    # insert / update return the same mock so .execute() is called on m
-    m.insert.return_value = m
-    m.update.return_value = m
-
-    results = iter(execute_results)
-
-    async def _execute():
-        return next(results)
-
-    m.execute = _execute
-    return m
+    fetchrow_mock = AsyncMock(side_effect=fetchrow_results)
+    fetch_mock = AsyncMock(side_effect=fetch_results if fetch_results is not None else [[]])
+    execute_mock = AsyncMock(return_value="OK")
+    return fetchrow_mock, fetch_mock, execute_mock
 
 
-def _result(data):
-    return MagicMock(data=data)
+def _last_sql_and_args(execute_mock) -> tuple[str, tuple]:
+    call = execute_mock.call_args
+    return call.args[0], call.args[1:]
 
 
-# ---------------------------------------------------------------------------
-# Shared performance fixture
-# ---------------------------------------------------------------------------
+def _update_record(execute_mock) -> dict:
+    """Reconstruct the {column: value} dict from an UPDATE ... SET a=$1,b=$2 ... WHERE id=$n call."""
+    sql, args = _last_sql_and_args(execute_mock)
+    set_clause = sql.split(" SET ", 1)[1].split(" WHERE ")[0]
+    columns = re.findall(r"(\w+) = \$\d+", set_clause)
+    return dict(zip(columns, args[:-1]))  # last arg is the WHERE id
+
 
 PERFORMANCE = [
     {"name": "Жим штанги лёжа", "sets_done": 3, "reps_done": 10, "weight_kg": 80.0}
@@ -68,39 +58,8 @@ PERFORMANCE_REAL = [
     {"name": "Жим штанги лёжа", "sets_done": 3, "reps_done": 10, "weight_kg": 100.0}
 ]
 
-
-# ---------------------------------------------------------------------------
-# Mock builders
-# ---------------------------------------------------------------------------
-
-
-def _build_client(wl_execute_results: list, users_weight_kg=75.0, plan_exercises=None):
-    """
-    Build a mock Supabase client for log_workout tests.
-
-    wl_execute_results: ordered list of MagicMock(data=...) objects that
-        workout_logs.execute() will return in sequence.
-    """
-    wl_mock = _chain(wl_execute_results)
-
-    users_mock = _chain([_result({"weight_kg": users_weight_kg})])
-
-    plan_data = {"exercises": plan_exercises or []}
-    workouts_mock = _chain([_result({"plan": plan_data})])
-
-    client = MagicMock()
-
-    def _table(name):
-        if name == "workout_logs":
-            return wl_mock
-        if name == "users":
-            return users_mock
-        if name == "workouts":
-            return workouts_mock
-        return _chain([_result(None)])
-
-    client.table = _table
-    return client, wl_mock
+PROFILE_ROW = {"weight_kg": 75.0}
+EMPTY_PLAN_ROW = {"plan": {"exercises": []}}
 
 
 # ---------------------------------------------------------------------------
@@ -112,21 +71,16 @@ class TestInsertPath:
     """When no existing workout_log is found → INSERT is called."""
 
     async def test_insert_called_when_no_existing_log(self):
-        # workout_logs execute() sequence:
-        # 1. prev_logs check (suggest_details)
-        # 2. history for PR detection
-        # 3. upsert check → [] (no existing)
-        # 4. insert result
-        client, wl = _build_client([
-            _result([]),    # prev_logs
-            _result([]),    # history
-            _result([]),    # upsert check → empty → INSERT
-            _result(None),  # insert
-        ])
+        # fetchrow() sequence: profile, prev_log (none), existing-log check (none)
+        fetchrow_mock, fetch_mock, execute_mock = _patches(
+            [PROFILE_ROW, None, None]
+        )
 
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value="uid-1")), \
-             patch("agent.tools.workouts.get_client", AsyncMock(return_value=client)), \
-             patch("agent.tools.workouts._get_active_cycle_data", AsyncMock(return_value=None)), \
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("agent.tools.workouts.session_log.fetchrow", fetchrow_mock), \
+             patch("agent.tools.workouts.session_log.fetch", fetch_mock), \
+             patch("agent.tools.workouts.session_log.execute", execute_mock), \
+             patch("agent.tools.workouts.session_log._get_active_cycle_data", AsyncMock(return_value=None)), \
              patch("agent.tools.exercise_db.EXERCISE_DB", []):
 
             from agent.tools.workouts import log_workout
@@ -139,21 +93,19 @@ class TestInsertPath:
             })
 
         assert result["status"] == "logged"
-        wl.insert.assert_called_once()
-        wl.update.assert_not_called()
+        sql, _ = _last_sql_and_args(execute_mock)
+        assert sql.strip().startswith("INSERT")
 
     async def test_no_workout_id_always_inserts(self):
         """Without workout_id, upsert check is skipped → always INSERT."""
-        client, wl = _build_client([
-            _result([]),    # prev_logs
-            _result([]),    # history
-            # No upsert check (no workout_id)
-            _result(None),  # insert
-        ])
+        # fetchrow() sequence: profile, prev_log (none) — no existing-log check, no workout_id
+        fetchrow_mock, fetch_mock, execute_mock = _patches([PROFILE_ROW, None])
 
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value="uid-1")), \
-             patch("agent.tools.workouts.get_client", AsyncMock(return_value=client)), \
-             patch("agent.tools.workouts._get_active_cycle_data", AsyncMock(return_value=None)), \
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("agent.tools.workouts.session_log.fetchrow", fetchrow_mock), \
+             patch("agent.tools.workouts.session_log.fetch", fetch_mock), \
+             patch("agent.tools.workouts.session_log.execute", execute_mock), \
+             patch("agent.tools.workouts.session_log._get_active_cycle_data", AsyncMock(return_value=None)), \
              patch("agent.tools.exercise_db.EXERCISE_DB", []):
 
             from agent.tools.workouts import log_workout
@@ -166,25 +118,22 @@ class TestInsertPath:
             })
 
         assert result["status"] == "logged"
-        wl.insert.assert_called_once()
-        wl.update.assert_not_called()
+        sql, _ = _last_sql_and_args(execute_mock)
+        assert sql.strip().startswith("INSERT")
 
     async def test_cycle_advanced_on_insert(self):
         """Cycle position is advanced when a new record is INSERTed."""
         fake_cycle = {"id": "cycle-001", "current_week": 1, "current_session_index": 0}
         advance_result = {"status": "advanced", "new_index": 1}
 
-        client, wl = _build_client([
-            _result([]),    # prev_logs
-            _result([]),    # history
-            _result([]),    # upsert check → empty → INSERT
-            _result(None),  # insert
-        ])
+        fetchrow_mock, fetch_mock, execute_mock = _patches([PROFILE_ROW, None, None])
 
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value="uid-1")), \
-             patch("agent.tools.workouts.get_client", AsyncMock(return_value=client)), \
-             patch("agent.tools.workouts._get_active_cycle_data", AsyncMock(return_value=fake_cycle)), \
-             patch("agent.tools.workouts._advance_cycle_position", AsyncMock(return_value=advance_result)), \
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("agent.tools.workouts.session_log.fetchrow", fetchrow_mock), \
+             patch("agent.tools.workouts.session_log.fetch", fetch_mock), \
+             patch("agent.tools.workouts.session_log.execute", execute_mock), \
+             patch("agent.tools.workouts.session_log._get_active_cycle_data", AsyncMock(return_value=fake_cycle)), \
+             patch("agent.tools.workouts.session_log._advance_cycle_position", AsyncMock(return_value=advance_result)), \
              patch("agent.tools.exercise_db.EXERCISE_DB", []):
 
             from agent.tools.workouts import log_workout
@@ -201,7 +150,7 @@ class TestInsertPath:
 
     async def test_user_not_found_returns_error(self):
         """If user_id is None, return error without any DB writes."""
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value=None)):
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value=None)):
             from agent.tools.workouts import log_workout
             result = await log_workout.ainvoke({
                 "telegram_user_id": 99999,
@@ -220,17 +169,18 @@ class TestUpdatePath:
     """When an existing workout_log is found within 8h → UPDATE, not INSERT."""
 
     async def test_update_called_when_existing_log(self):
-        # upsert check returns existing record
-        client, wl = _build_client([
-            _result([]),                            # prev_logs
-            _result([]),                            # history
-            _result([{"id": "existing-log-id"}]),  # upsert check → found → UPDATE
-            _result(None),                          # update result
-        ])
+        # done_as_planned=False + workout_id + real performance → next_session
+        # block also reads the plan, so fetchrow order is:
+        # profile, prev_log (none), plan (for next_session), existing-log check (found)
+        fetchrow_mock, fetch_mock, execute_mock = _patches(
+            [PROFILE_ROW, None, EMPTY_PLAN_ROW, {"id": "existing-log-id"}]
+        )
 
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value="uid-1")), \
-             patch("agent.tools.workouts.get_client", AsyncMock(return_value=client)), \
-             patch("agent.tools.workouts._get_active_cycle_data", AsyncMock(return_value=None)), \
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("agent.tools.workouts.session_log.fetchrow", fetchrow_mock), \
+             patch("agent.tools.workouts.session_log.fetch", fetch_mock), \
+             patch("agent.tools.workouts.session_log.execute", execute_mock), \
+             patch("agent.tools.workouts.session_log._get_active_cycle_data", AsyncMock(return_value=None)), \
              patch("agent.tools.exercise_db.EXERCISE_DB", []):
 
             from agent.tools.workouts import log_workout
@@ -243,22 +193,21 @@ class TestUpdatePath:
             })
 
         assert result["status"] == "logged"
-        wl.update.assert_called_once()
-        wl.insert.assert_not_called()
+        sql, _ = _last_sql_and_args(execute_mock)
+        assert sql.strip().startswith("UPDATE")
 
     async def test_update_targets_correct_id(self):
         """UPDATE must be called with the exact existing record id."""
         existing_id = "log-uuid-abc123"
-        client, wl = _build_client([
-            _result([]),
-            _result([]),
-            _result([{"id": existing_id}]),  # upsert check
-            _result(None),
-        ])
+        fetchrow_mock, fetch_mock, execute_mock = _patches(
+            [PROFILE_ROW, None, EMPTY_PLAN_ROW, {"id": existing_id}]
+        )
 
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value="uid-1")), \
-             patch("agent.tools.workouts.get_client", AsyncMock(return_value=client)), \
-             patch("agent.tools.workouts._get_active_cycle_data", AsyncMock(return_value=None)), \
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("agent.tools.workouts.session_log.fetchrow", fetchrow_mock), \
+             patch("agent.tools.workouts.session_log.fetch", fetch_mock), \
+             patch("agent.tools.workouts.session_log.execute", execute_mock), \
+             patch("agent.tools.workouts.session_log._get_active_cycle_data", AsyncMock(return_value=None)), \
              patch("agent.tools.exercise_db.EXERCISE_DB", []):
 
             from agent.tools.workouts import log_workout
@@ -270,28 +219,24 @@ class TestUpdatePath:
                 "done_as_planned": False,
             })
 
-        # The .eq() call after .update() should receive the existing_id
-        eq_calls = [str(c) for c in wl.eq.call_args_list]
-        assert any(existing_id in c for c in eq_calls), (
-            f"Expected eq() to be called with {existing_id!r}, got: {eq_calls}"
-        )
+        _, args = _last_sql_and_args(execute_mock)
+        assert args[-1] == existing_id
 
     async def test_cycle_not_advanced_on_update(self):
         """Cycle must NOT be advanced when UPDATEing an existing record."""
         fake_cycle = {"id": "cycle-001", "current_week": 1, "current_session_index": 0}
         advance_mock = AsyncMock(return_value={"status": "advanced"})
 
-        client, wl = _build_client([
-            _result([]),
-            _result([]),
-            _result([{"id": "existing-id"}]),  # existing → UPDATE
-            _result(None),
-        ])
+        fetchrow_mock, fetch_mock, execute_mock = _patches(
+            [PROFILE_ROW, None, EMPTY_PLAN_ROW, {"id": "existing-id"}]
+        )
 
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value="uid-1")), \
-             patch("agent.tools.workouts.get_client", AsyncMock(return_value=client)), \
-             patch("agent.tools.workouts._get_active_cycle_data", AsyncMock(return_value=fake_cycle)), \
-             patch("agent.tools.workouts._advance_cycle_position", advance_mock), \
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("agent.tools.workouts.session_log.fetchrow", fetchrow_mock), \
+             patch("agent.tools.workouts.session_log.fetch", fetch_mock), \
+             patch("agent.tools.workouts.session_log.execute", execute_mock), \
+             patch("agent.tools.workouts.session_log._get_active_cycle_data", AsyncMock(return_value=fake_cycle)), \
+             patch("agent.tools.workouts.session_log._advance_cycle_position", advance_mock), \
              patch("agent.tools.exercise_db.EXERCISE_DB", []):
 
             from agent.tools.workouts import log_workout
@@ -309,18 +254,17 @@ class TestUpdatePath:
 
     async def test_update_uses_latest_data(self):
         """UPDATE record should carry the new notes and performance."""
-        client, wl = _build_client([
-            _result([]),
-            _result([]),
-            _result([{"id": "existing-id"}]),
-            _result(None),
-        ])
+        fetchrow_mock, fetch_mock, execute_mock = _patches(
+            [PROFILE_ROW, None, EMPTY_PLAN_ROW, {"id": "existing-id"}]
+        )
 
         new_notes = "60кг × 12 повторений, ощущения отличные"
 
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value="uid-1")), \
-             patch("agent.tools.workouts.get_client", AsyncMock(return_value=client)), \
-             patch("agent.tools.workouts._get_active_cycle_data", AsyncMock(return_value=None)), \
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("agent.tools.workouts.session_log.fetchrow", fetchrow_mock), \
+             patch("agent.tools.workouts.session_log.fetch", fetch_mock), \
+             patch("agent.tools.workouts.session_log.execute", execute_mock), \
+             patch("agent.tools.workouts.session_log._get_active_cycle_data", AsyncMock(return_value=None)), \
              patch("agent.tools.exercise_db.EXERCISE_DB", []):
 
             from agent.tools.workouts import log_workout
@@ -332,11 +276,8 @@ class TestUpdatePath:
                 "done_as_planned": False,
             })
 
-        update_call_args = wl.update.call_args
-        assert update_call_args is not None
-        updated_record = update_call_args[0][0]
+        updated_record = _update_record(execute_mock)
         assert updated_record["notes"] == new_notes
-        # Performance should be the new real data
         assert updated_record["performance"] is not None
         assert updated_record["performance"][0]["weight_kg"] == 100.0
 
@@ -355,34 +296,22 @@ class TestTwoCallScenario:
       4. Second call should UPDATE the first record, not create a second one.
     """
 
-    async def _call(self, client, done_as_planned, performance, existing_rows=None):
-        existing_rows = existing_rows or []
-        wl_results = [
-            _result([]),             # prev_logs
-            _result([]),             # history
-            _result(existing_rows),  # upsert check
-            _result(None),           # write result
-        ]
-        # Re-wire the chain with new results each call
-        wl = _chain(wl_results)
-        users = _chain([_result({"weight_kg": 75.0})])
-        workouts = _chain([_result({"plan": {"exercises": []}})])
-        c = MagicMock()
+    async def _call(self, done_as_planned, performance, existing_row=None):
+        # done_as_planned=False + workout_id + performance → next_session block
+        # also reads the plan, adding one more fetchrow() call before the
+        # existing-log check.
+        fetchrow_results = [PROFILE_ROW, None]
+        if not done_as_planned:
+            fetchrow_results.append(EMPTY_PLAN_ROW)
+        fetchrow_results.append(existing_row)
 
-        def _table(name):
-            if name == "workout_logs":
-                return wl
-            if name == "users":
-                return users
-            if name == "workouts":
-                return workouts
-            return _chain([_result(None)])
+        fetchrow_mock, fetch_mock, execute_mock = _patches(fetchrow_results)
 
-        c.table = _table
-
-        with patch("agent.tools.workouts._get_user_id", AsyncMock(return_value="uid-1")), \
-             patch("agent.tools.workouts.get_client", AsyncMock(return_value=c)), \
-             patch("agent.tools.workouts._get_active_cycle_data", AsyncMock(return_value=None)), \
+        with patch("agent.tools.workouts.session_log._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("agent.tools.workouts.session_log.fetchrow", fetchrow_mock), \
+             patch("agent.tools.workouts.session_log.fetch", fetch_mock), \
+             patch("agent.tools.workouts.session_log.execute", execute_mock), \
+             patch("agent.tools.workouts.session_log._get_active_cycle_data", AsyncMock(return_value=None)), \
              patch("agent.tools.exercise_db.EXERCISE_DB", []):
 
             from agent.tools.workouts import log_workout
@@ -394,37 +323,34 @@ class TestTwoCallScenario:
                 "done_as_planned": done_as_planned,
             })
 
-        return result, wl
+        return result, execute_mock
 
     async def test_first_call_inserts(self):
-        _, wl = await self._call(
-            client=None,
+        _, execute_mock = await self._call(
             done_as_planned=True,
             performance=PERFORMANCE,
-            existing_rows=[],   # no existing → INSERT
+            existing_row=None,  # no existing → INSERT
         )
-        wl.insert.assert_called_once()
-        wl.update.assert_not_called()
+        sql, _ = _last_sql_and_args(execute_mock)
+        assert sql.strip().startswith("INSERT")
 
     async def test_second_call_updates(self):
         """Second call with real weights finds existing record → UPDATE."""
-        _, wl = await self._call(
-            client=None,
+        _, execute_mock = await self._call(
             done_as_planned=False,
             performance=PERFORMANCE_REAL,
-            existing_rows=[{"id": "first-insert-id"}],  # existing → UPDATE
+            existing_row={"id": "first-insert-id"},
         )
-        wl.update.assert_called_once()
-        wl.insert.assert_not_called()
+        sql, _ = _last_sql_and_args(execute_mock)
+        assert sql.strip().startswith("UPDATE")
 
     async def test_second_call_replaces_performance(self):
         """Real performance data must overwrite the plan placeholder."""
-        _, wl = await self._call(
-            client=None,
+        _, execute_mock = await self._call(
             done_as_planned=False,
             performance=PERFORMANCE_REAL,
-            existing_rows=[{"id": "first-insert-id"}],
+            existing_row={"id": "first-insert-id"},
         )
-        updated_record = wl.update.call_args[0][0]
+        updated_record = _update_record(execute_mock)
         assert updated_record["done_as_planned"] is False
         assert updated_record["performance"][0]["weight_kg"] == 100.0

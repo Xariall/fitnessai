@@ -8,8 +8,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from agent.nodes import load_profile, planner, responder
+from agent.nodes import domain_planner, load_profile, planner, responder, router_node
 from agent.state import AgentState
+from config import settings
 from agent.tools.motivation import generate_motivation_meme, send_motivation
 from agent.tools.nutrition import (
     calculate_daily_calories,
@@ -104,12 +105,8 @@ def _should_continue(state: AgentState) -> str:
     return "responder"
 
 
-def build_graph(checkpointer=None):
-    if checkpointer is None:
-        checkpointer = MemorySaver()
-
-    graph = StateGraph(AgentState)
-    graph.add_node("load_profile", load_profile)
+def _build_flat_graph(graph: StateGraph) -> None:
+    """Старый путь: один planner видит все 35 tools + весь SYSTEM_PROMPT каждый ход."""
     graph.add_node("planner", partial(planner, tools=TOOLS))
     graph.add_node("tool_executor", ToolNode(TOOLS))
     graph.add_node("responder", responder)
@@ -123,6 +120,47 @@ def build_graph(checkpointer=None):
     )
     graph.add_edge("tool_executor", "planner")
     graph.add_edge("responder", END)
+
+
+def _build_routed_graph(graph: StateGraph) -> None:
+    """Новый путь (settings.enable_subagent_router=True): router выбирает домен,
+    domain_planner видит только tools и промпт этого домена.
+
+    tool_executor держит полный набор TOOLS — это исполнитель, а не источник
+    схем для LLM, ему не нужна доменная фильтрация (её делает bind_tools внутри
+    domain_planner). Известное ограничение: домен фиксируется один раз в начале
+    хода, поэтому запрос, требующий tools из двух доменов сразу в одном
+    сообщении, новый путь пока не решает так же хорошо как старый плоский —
+    проверить на реальных диалогах перед включением в проде (UC-X02 "итог дня").
+    """
+    graph.add_node("router", router_node)
+    graph.add_node("domain_planner", domain_planner)
+    graph.add_node("tool_executor", ToolNode(TOOLS))
+    graph.add_node("responder", responder)
+
+    graph.set_entry_point("load_profile")
+    graph.add_edge("load_profile", "router")
+    graph.add_edge("router", "domain_planner")
+    graph.add_conditional_edges(
+        "domain_planner",
+        _should_continue,
+        {"tool_executor": "tool_executor", "responder": "responder"},
+    )
+    graph.add_edge("tool_executor", "domain_planner")
+    graph.add_edge("responder", END)
+
+
+def build_graph(checkpointer=None):
+    if checkpointer is None:
+        checkpointer = MemorySaver()
+
+    graph = StateGraph(AgentState)
+    graph.add_node("load_profile", load_profile)
+
+    if settings.enable_subagent_router:
+        _build_routed_graph(graph)
+    else:
+        _build_flat_graph(graph)
 
     return graph.compile(checkpointer=checkpointer)
 

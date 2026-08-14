@@ -9,7 +9,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from db.client import get_client
+from db.client import fetch, fetchrow
 from agent.tools.exercise_db import EXERCISE_DB, get_ru_name
 from agent.tools.workouts import _calc_1rm, _MUSCLE_KEYWORDS
 
@@ -90,29 +90,23 @@ async def get_max_lifts_internal(
 
     Returns list sorted by 1RM descending.
     """
-    client = await get_client()
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Fetch workout logs
-    logs_result = (
-        await client.table("workout_logs")
-        .select("completed_at,performance,cycle_id")
-        .eq("user_id", user_id)
-        .gte("completed_at", since)
-        .order("completed_at", desc=True)
-        .execute()
+    logs = await fetch(
+        "SELECT completed_at, performance, cycle_id FROM workout_logs "
+        "WHERE user_id = $1 AND completed_at >= $2 "
+        "ORDER BY completed_at DESC",
+        user_id,
+        since,
     )
-    logs = logs_result.data or []
 
     # Load user bodyweight
-    profile_result = (
-        await client.table("users")
-        .select("weight_kg")
-        .eq("telegram_user_id", telegram_user_id)
-        .maybe_single()
-        .execute()
+    profile_row = await fetchrow(
+        "SELECT weight_kg FROM users WHERE telegram_user_id = $1",
+        telegram_user_id,
     )
-    user_bodyweight = (getattr(profile_result, "data", None) or {}).get("weight_kg") or 0
+    user_bodyweight = (profile_row or {}).get("weight_kg") or 0
 
     # Build exercise DB map
     ex_db_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
@@ -200,31 +194,25 @@ async def get_exercise_progression(
     Returns up to `limit` most recent sessions sorted by date ASC.
     """
     t0 = time.monotonic()
-    client = await get_client()
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     normalized_id = _normalize_key(exercise_id)
 
     # Fetch workout logs
-    logs_result = (
-        await client.table("workout_logs")
-        .select("completed_at,performance")
-        .eq("user_id", user_id)
-        .gte("completed_at", since)
-        .order("completed_at", desc=False)
-        .execute()
+    logs = await fetch(
+        "SELECT completed_at, performance FROM workout_logs "
+        "WHERE user_id = $1 AND completed_at >= $2 "
+        "ORDER BY completed_at ASC",
+        user_id,
+        since,
     )
-    logs = logs_result.data or []
 
     # Load user bodyweight
-    profile_result = (
-        await client.table("users")
-        .select("weight_kg")
-        .eq("telegram_user_id", telegram_user_id)
-        .maybe_single()
-        .execute()
+    profile_row = await fetchrow(
+        "SELECT weight_kg FROM users WHERE telegram_user_id = $1",
+        telegram_user_id,
     )
-    user_bodyweight = (getattr(profile_result, "data", None) or {}).get("weight_kg") or 0
+    user_bodyweight = (profile_row or {}).get("weight_kg") or 0
 
     # Build exercise DB map for bodyweight detection
     ex_db_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
@@ -314,28 +302,22 @@ async def get_weekly_volume(
     Returns list of weeks with byMuscleGroup dict, sorted by week ascending.
     """
     t0 = time.monotonic()
-    client = await get_client()
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    logs_result = (
-        await client.table("workout_logs")
-        .select("completed_at,performance")
-        .eq("user_id", user_id)
-        .gte("completed_at", since)
-        .order("completed_at", desc=False)
-        .execute()
+    logs = await fetch(
+        "SELECT completed_at, performance FROM workout_logs "
+        "WHERE user_id = $1 AND completed_at >= $2 "
+        "ORDER BY completed_at ASC",
+        user_id,
+        since,
     )
-    logs = logs_result.data or []
 
     # Load user bodyweight
-    profile_result = (
-        await client.table("users")
-        .select("weight_kg")
-        .eq("telegram_user_id", telegram_user_id)
-        .maybe_single()
-        .execute()
+    profile_row = await fetchrow(
+        "SELECT weight_kg FROM users WHERE telegram_user_id = $1",
+        telegram_user_id,
     )
-    user_bodyweight = (getattr(profile_result, "data", None) or {}).get("weight_kg") or 0
+    user_bodyweight = (profile_row or {}).get("weight_kg") or 0
 
     # Build exercise DB map
     ex_db_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}
@@ -409,17 +391,13 @@ async def get_exercises_list(user_id: str, days: int = 90) -> list[dict]:
     Get unique exercises from workout logs for dropdown.
     Returns list of {id, name, name_ru, muscleGroup}.
     """
-    client = await get_client()
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    logs_result = (
-        await client.table("workout_logs")
-        .select("performance")
-        .eq("user_id", user_id)
-        .gte("completed_at", since)
-        .execute()
+    logs = await fetch(
+        "SELECT performance FROM workout_logs WHERE user_id = $1 AND completed_at >= $2",
+        user_id,
+        since,
     )
-    logs = logs_result.data or []
 
     seen: dict[str, dict] = {}
     for log in logs:
@@ -445,28 +423,22 @@ async def get_12week_recap(user_id: str, telegram_user_id: int) -> list[dict]:
 
     Returns list of recap rows with session count, load deltas, 1RM deltas.
     """
-    client = await get_client()
-    since = (datetime.now(timezone.utc) - timedelta(weeks=12)).isoformat()
+    since = datetime.now(timezone.utc) - timedelta(weeks=12)
 
-    logs_result = (
-        await client.table("workout_logs")
-        .select("completed_at,performance")
-        .eq("user_id", user_id)
-        .gte("completed_at", since)
-        .order("completed_at", desc=False)
-        .execute()
+    logs = await fetch(
+        "SELECT completed_at, performance FROM workout_logs "
+        "WHERE user_id = $1 AND completed_at >= $2 "
+        "ORDER BY completed_at ASC",
+        user_id,
+        since,
     )
-    logs = logs_result.data or []
 
     # Load user bodyweight for 1RM calculation
-    profile_result = (
-        await client.table("users")
-        .select("weight_kg")
-        .eq("telegram_user_id", telegram_user_id)
-        .maybe_single()
-        .execute()
+    profile_row = await fetchrow(
+        "SELECT weight_kg FROM users WHERE telegram_user_id = $1",
+        telegram_user_id,
     )
-    user_bodyweight = (getattr(profile_result, "data", None) or {}).get("weight_kg") or 0
+    user_bodyweight = (profile_row or {}).get("weight_kg") or 0
 
     # Build exercise DB map
     ex_db_map = {_normalize_key(ex.name): ex for ex in EXERCISE_DB}

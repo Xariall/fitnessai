@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage
 
 from agent.graph import agent_graph
 from bot.keyboards.main import help_keyboard, main_menu_keyboard
-from db.client import get_client
+from db.client import fetchrow
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -32,15 +32,9 @@ _ACTIVITY_LABELS = {
 async def get_profile_text(telegram_user_id: int) -> str:
     """Формирует текст профиля пользователя. Без side-эффектов."""
     try:
-        client = await get_client()
-        result = (
-            await client.table("users")
-            .select("*")
-            .eq("telegram_user_id", telegram_user_id)
-            .single()
-            .execute()
+        profile = await fetchrow(
+            "SELECT * FROM users WHERE telegram_user_id = $1", telegram_user_id
         )
-        profile = result.data
     except Exception:
         logger.exception("Failed to load profile for %s", telegram_user_id)
         return "Не удалось загрузить профиль. Попробуй ещё раз."

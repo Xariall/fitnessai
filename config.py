@@ -1,4 +1,3 @@
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,9 +6,7 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str
 
-    supabase_url: str
-    supabase_key: str          # anon key
-    supabase_service_key: str  # service_role key (только бэкенд)
+    database_url: str  # postgres://... — Railway Postgres addon (авто-инжект как DATABASE_URL)
 
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
@@ -21,17 +18,13 @@ class Settings(BaseSettings):
     # 0 = безлимитно; >0 = максимум запросов к агенту в сутки на пользователя
     max_requests_per_day: int = 0
 
+    # Роутинг по под-агентам (workout/nutrition/progress/motivation/general) вместо
+    # одного planner'а со всеми 34 tools сразу. По умолчанию выключено — старый
+    # плоский граф остаётся дефолтным путём, пока новый не провалидирован.
+    enable_subagent_router: bool = False
+
     # URL Telegram Web App для рекордов
     web_app_url: str = "https://web-xarialls-projects.vercel.app/records"
-
-    @field_validator("supabase_url")
-    @classmethod
-    def strip_rest_v1(cls, v: str) -> str:
-        """Supabase URL должен быть https://<project>.supabase.co без /rest/v1/."""
-        for suffix in ("/rest/v1/", "/rest/v1"):
-            if v.endswith(suffix):
-                return v[: -len(suffix)]
-        return v.rstrip("/")
 
 
 settings = Settings()

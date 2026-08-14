@@ -7,7 +7,9 @@ langgraph-sdk==0.2.15
 langchain-core==0.3.86
 langchain-ollama==0.2.1
 langchain-google-genai==2.1.12
-supabase==2.16.0
+asyncpg==0.30.0
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
 pydantic==2.8.2
 pydantic-settings==2.14.1
 pydantic_core==2.20.1

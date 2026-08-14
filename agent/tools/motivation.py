@@ -5,7 +5,7 @@ import httpx
 from langchain_core.tools import tool
 
 from config import settings
-from db.client import get_client
+from db.client import fetch, fetchrow
 
 logger = logging.getLogger(__name__)
 
@@ -15,30 +15,20 @@ async def send_motivation(telegram_user_id: int) -> str:
     """Сгенерировать персональное мотивационное сообщение на основе профиля и прогресса."""
     from llm.provider import get_llm
 
-    client = await get_client()
-
-    profile_result = (
-        await client.table("users")
-        .select("*")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
+    profile = await fetchrow(
+        "SELECT * FROM users WHERE telegram_user_id = $1", telegram_user_id
     )
-    profile = profile_result.data or {}
+    profile = profile or {}
 
     # Последний замер прогресса
     user_id = profile.get("id")
     progress_text = ""
     if user_id:
-        prog_result = (
-            await client.table("progress_logs")
-            .select("weight_kg, measured_at")
-            .eq("user_id", user_id)
-            .order("measured_at", desc=True)
-            .limit(2)
-            .execute()
+        logs = await fetch(
+            "SELECT weight_kg, measured_at FROM progress_logs "
+            "WHERE user_id = $1 ORDER BY measured_at DESC LIMIT 2",
+            user_id,
         )
-        logs = prog_result.data or []
         if len(logs) >= 2:
             delta = round(logs[0]["weight_kg"] - logs[1]["weight_kg"], 1)
             sign = "+" if delta > 0 else ""

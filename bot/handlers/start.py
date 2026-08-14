@@ -15,7 +15,7 @@ from bot.keyboards.main import (
     start_keyboard,
 )
 from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
-from db.client import get_client
+from db.client import execute
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -212,21 +212,29 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
     )
 
 
-async def _finish_onboarding(message: Message, state: FSMContext, injuries: list[str]) -> None:
+async def _finish_onboarding(message: Message, state: FSMContext, injuries: list[str], user_id: int) -> None:
     data = await state.get_data()
     await state.clear()
 
     try:
-        client = await get_client()
-        await client.table("users").insert(
-            {
-                **data,
-                "telegram_user_id": message.from_user.id,
-                "injuries": injuries,
-            }
-        ).execute()
+        await execute(
+            "INSERT INTO users (telegram_user_id, name, goal, activity_level, "
+            "age, height_cm, weight_kg, injuries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
+            "ON CONFLICT (telegram_user_id) DO UPDATE SET "
+            "name = EXCLUDED.name, goal = EXCLUDED.goal, activity_level = EXCLUDED.activity_level, "
+            "age = EXCLUDED.age, height_cm = EXCLUDED.height_cm, weight_kg = EXCLUDED.weight_kg, "
+            "injuries = EXCLUDED.injuries",
+            user_id,
+            data.get("name"),
+            data.get("goal"),
+            data.get("activity_level"),
+            data.get("age"),
+            data.get("height_cm"),
+            data.get("weight_kg"),
+            injuries,
+        )
     except Exception:
-        logger.exception("Failed to save user profile for %s", message.from_user.id)
+        logger.exception("Failed to save user profile for %s", user_id)
         await message.answer(
             "Не удалось сохранить профиль — проблема с базой данных. "
             "Попробуй ещё раз через /start."
@@ -271,7 +279,7 @@ async def _finish_onboarding(message: Message, state: FSMContext, injuries: list
 async def onboarding_no_injuries(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await callback.message.edit_reply_markup(reply_markup=None)
-    await _finish_onboarding(callback.message, state, injuries=[])
+    await _finish_onboarding(callback.message, state, injuries=[], user_id=callback.from_user.id)
 
 
 @router.message(OnboardingFSM.injuries)
@@ -281,4 +289,4 @@ async def onboarding_injuries(message: Message, state: FSMContext) -> None:
         await message.answer("Напиши что беспокоит или нажми «Нет травм ✅»")
         return
     injuries = _parse_injuries(text)
-    await _finish_onboarding(message, state, injuries=injuries)
+    await _finish_onboarding(message, state, injuries=injuries, user_id=message.from_user.id)

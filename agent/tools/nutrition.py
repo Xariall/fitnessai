@@ -5,7 +5,7 @@ from typing import Optional
 from langchain_core.tools import tool
 
 from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
-from db.client import get_client
+from db.client import execute, fetch, fetchrow
 from db.utils import get_user_id as _get_user_id
 
 logger = logging.getLogger(__name__)
@@ -14,18 +14,12 @@ logger = logging.getLogger(__name__)
 @tool
 async def calculate_daily_calories(telegram_user_id: int) -> dict:
     """Рассчитать суточную норму КБЖУ по формуле Миффлина-Сан Жеора с учётом цели."""
-    client = await get_client()
-    result = (
-        await client.table("users")
-        .select("*")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
+    u = await fetchrow(
+        "SELECT * FROM users WHERE telegram_user_id = $1", telegram_user_id
     )
-    if not result.data:
+    if not u:
         return {}
 
-    u = result.data
     # Формула Миффлина-Сан Жеора (для мужчины; +5 для женщины замени на -161)
     bmr = 10 * u["weight_kg"] + 6.25 * u["height_cm"] - 5 * u["age"] + 5
     tdee = bmr * _ACTIVITY_MULTIPLIERS.get(u["activity_level"], 1.55)
@@ -64,30 +58,23 @@ async def generate_nutrition_plan(
     _MEAL_ORDER = ["breakfast", "lunch", "dinner", "snack"]
     _MEAL_LABELS = {"breakfast": "Завтрак", "lunch": "Обед", "dinner": "Ужин", "snack": "Перекус"}
 
-    client = await get_client()
-    profile_result = (
-        await client.table("users")
-        .select("*")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
+    profile = await fetchrow(
+        "SELECT * FROM users WHERE telegram_user_id = $1", telegram_user_id
     )
-    profile = profile_result.data or {}
+    profile = profile or {}
     norms = await calculate_daily_calories.ainvoke({"telegram_user_id": telegram_user_id})
     user_id = await _get_user_id(telegram_user_id)
 
     # ── Читаем сегодняшние логи ────────────────────────────────────────────────
     today_logs: list[dict] = []
     if user_id:
-        today = date.today().isoformat()
-        logs_result = (
-            await client.table("food_logs")
-            .select("food_name, meal_type, calories, protein, fat, carbs")
-            .eq("user_id", user_id)
-            .gte("logged_at", f"{today}T00:00:00")
-            .execute()
+        today_start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+        today_logs = await fetch(
+            "SELECT food_name, meal_type, calories, protein, fat, carbs FROM food_logs "
+            "WHERE user_id = $1 AND logged_at >= $2",
+            user_id,
+            today_start,
         )
-        today_logs = logs_result.data or []
 
     # ── Группируем уже съеденное по приёму пищи ───────────────────────────────
     consumed_by_meal: dict[str, list] = {}
@@ -176,14 +163,17 @@ async def generate_nutrition_plan(
 
     if user_id:
         try:
-            await client.table("nutrition_plans").insert({
-                "user_id": user_id,
-                "target_calories": norms.get("calories", 0),
-                "target_protein": norms.get("protein_g", 0),
-                "target_fat": norms.get("fat_g", 0),
-                "target_carbs": norms.get("carbs_g", 0),
-                "plan": plan,
-            }).execute()
+            await execute(
+                "INSERT INTO nutrition_plans "
+                "(user_id, target_calories, target_protein, target_fat, target_carbs, plan) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                user_id,
+                norms.get("calories", 0),
+                norms.get("protein_g", 0),
+                norms.get("fat_g", 0),
+                norms.get("carbs_g", 0),
+                plan,
+            )
         except Exception:
             logger.exception("Failed to save nutrition_plan to DB for user %s", telegram_user_id)
 
@@ -208,19 +198,19 @@ async def log_food(
     if not user_id:
         return "Пользователь не найден."
 
-    client = await get_client()
-    await client.table("food_logs").insert(
-        {
-            "user_id": user_id,
-            "food_name": food_name,
-            "meal_type": meal_type,
-            "calories": calories,
-            "protein": protein,
-            "fat": fat,
-            "carbs": carbs,
-            "logged_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).execute()
+    await execute(
+        "INSERT INTO food_logs "
+        "(user_id, food_name, meal_type, calories, protein, fat, carbs, logged_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        user_id,
+        food_name,
+        meal_type,
+        calories,
+        protein,
+        fat,
+        carbs,
+        datetime.now(timezone.utc),
+    )
 
     summary = await get_daily_nutrition_summary.ainvoke({"telegram_user_id": telegram_user_id})
     consumed = summary.get("consumed", {})
@@ -240,16 +230,12 @@ async def get_daily_nutrition_summary(telegram_user_id: int) -> dict:
     if not user_id:
         return {}
 
-    today = date.today().isoformat()
-    client = await get_client()
-    logs_result = (
-        await client.table("food_logs")
-        .select("*")
-        .eq("user_id", user_id)
-        .gte("logged_at", f"{today}T00:00:00")
-        .execute()
+    today_start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    logs = await fetch(
+        "SELECT * FROM food_logs WHERE user_id = $1 AND logged_at >= $2",
+        user_id,
+        today_start,
     )
-    logs = logs_result.data or []
 
     consumed = {
         "calories": sum(r["calories"] for r in logs),
@@ -284,15 +270,10 @@ async def get_workout_nutrition_protocol(
         workout_type: Тип тренировки (strength / cardio / flexibility).
         workout_duration_minutes: Длительность тренировки в минутах.
     """
-    client = await get_client()
-    profile_result = (
-        await client.table("users")
-        .select("weight_kg, goal")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
+    profile = await fetchrow(
+        "SELECT weight_kg, goal FROM users WHERE telegram_user_id = $1", telegram_user_id
     )
-    profile = profile_result.data or {}
+    profile = profile or {}
     weight = profile.get("weight_kg", 75)
     goal = profile.get("goal", "maintain")
 
@@ -357,27 +338,19 @@ async def check_nutrition_adjustment(telegram_user_id: int) -> dict:
     if not user_id:
         return {"status": "no_data", "message": "Пользователь не найден."}
 
-    client = await get_client()
-    profile_result = (
-        await client.table("users")
-        .select("*")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
+    profile = await fetchrow(
+        "SELECT * FROM users WHERE telegram_user_id = $1", telegram_user_id
     )
-    profile = profile_result.data or {}
+    profile = profile or {}
     goal = profile.get("goal", "maintain")
 
-    since = (datetime.now(timezone.utc) - timedelta(weeks=4)).isoformat()
-    logs_result = (
-        await client.table("progress_logs")
-        .select("weight_kg, measured_at")
-        .eq("user_id", user_id)
-        .gte("measured_at", since)
-        .order("measured_at")
-        .execute()
+    since = datetime.now(timezone.utc) - timedelta(weeks=4)
+    logs = await fetch(
+        "SELECT weight_kg, measured_at FROM progress_logs "
+        "WHERE user_id = $1 AND measured_at >= $2 ORDER BY measured_at",
+        user_id,
+        since,
     )
-    logs = logs_result.data or []
 
     if len(logs) < 2:
         return {
@@ -480,15 +453,10 @@ async def calculate_hydration(
         workout_duration_minutes: Длительность тренировки в минутах (0 = день отдыха).
         temperature_celsius: Температура окружающей среды в Цельсиях.
     """
-    client = await get_client()
-    profile_result = (
-        await client.table("users")
-        .select("weight_kg")
-        .eq("telegram_user_id", telegram_user_id)
-        .single()
-        .execute()
+    profile = await fetchrow(
+        "SELECT weight_kg FROM users WHERE telegram_user_id = $1", telegram_user_id
     )
-    weight = (profile_result.data or {}).get("weight_kg", 70)
+    weight = (profile or {}).get("weight_kg", 70)
 
     base_ml = round(weight * 32)
     workout_ml = round(workout_duration_minutes / 60 * 625) if workout_duration_minutes > 0 else 0
@@ -578,22 +546,16 @@ async def delete_log_entry(
     if not user_id:
         return "Пользователь не найден."
 
-    client = await get_client()
-
     if entry_type == "workout":
-        result = (
-            await client.table("workout_logs")
-            .select("id, notes, completed_at")
-            .eq("user_id", user_id)
-            .order("completed_at", desc=True)
-            .limit(1)
-            .execute()
+        row = await fetchrow(
+            "SELECT id, notes, completed_at FROM workout_logs "
+            "WHERE user_id = $1 ORDER BY completed_at DESC LIMIT 1",
+            user_id,
         )
-        if not result.data:
+        if not row:
             return "Нет записанных тренировок для удаления."
 
-        row = result.data[0]
-        await client.table("workout_logs").delete().eq("id", row["id"]).execute()
+        await execute("DELETE FROM workout_logs WHERE id = $1", row["id"])
 
         dt = datetime.fromisoformat(row["completed_at"].replace("Z", "+00:00"))
         date_str = dt.astimezone().strftime("%-d %b %H:%M")
@@ -602,44 +564,43 @@ async def delete_log_entry(
         return f"✅ Удалено: {short} ({date_str})"
 
     # entry_type == "food"
-    query = (
-        client.table("food_logs")
-        .select("id, food_name, calories, meal_type, logged_at")
-        .eq("user_id", user_id)
-    )
+    base_conditions = ["user_id = $1"]
+    base_args: list = [user_id]
     if meal_type:
-        query = query.eq("meal_type", meal_type)
+        base_args.append(meal_type)
+        base_conditions.append(f"meal_type = ${len(base_args)}")
+    base_where = " AND ".join(base_conditions)
+    select_cols = "id, food_name, calories, meal_type, logged_at"
 
     if food_name:
         # Ищем по названию: сначала точное совпадение, потом частичное
-        exact = await (
-            query.ilike("food_name", food_name)
-            .order("logged_at", desc=True)
-            .limit(1)
-            .execute()
+        exact_args = base_args + [food_name]
+        row = await fetchrow(
+            f"SELECT {select_cols} FROM food_logs WHERE {base_where} "
+            f"AND food_name ILIKE ${len(exact_args)} "
+            f"ORDER BY logged_at DESC LIMIT 1",
+            *exact_args,
         )
-        if exact.data:
-            rows = exact.data
-        else:
-            partial = await (
-                query.ilike("food_name", f"%{food_name}%")
-                .order("logged_at", desc=True)
-                .limit(1)
-                .execute()
+        if not row:
+            partial_args = base_args + [f"%{food_name}%"]
+            row = await fetchrow(
+                f"SELECT {select_cols} FROM food_logs WHERE {base_where} "
+                f"AND food_name ILIKE ${len(partial_args)} "
+                f"ORDER BY logged_at DESC LIMIT 1",
+                *partial_args,
             )
-            rows = partial.data or []
     else:
-        last = await (
-            query.order("logged_at", desc=True).limit(1).execute()
+        row = await fetchrow(
+            f"SELECT {select_cols} FROM food_logs WHERE {base_where} "
+            f"ORDER BY logged_at DESC LIMIT 1",
+            *base_args,
         )
-        rows = last.data or []
 
-    if not rows:
+    if not row:
         hint = f" «{food_name}»" if food_name else ""
         return f"Запись{hint} не найдена."
 
-    row = rows[0]
-    await client.table("food_logs").delete().eq("id", row["id"]).execute()
+    await execute("DELETE FROM food_logs WHERE id = $1", row["id"])
 
     # Пересчитываем итог дня после удаления
     summary = await get_daily_nutrition_summary.ainvoke({"telegram_user_id": telegram_user_id})

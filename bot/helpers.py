@@ -13,7 +13,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-from db.client import get_client
+from db.client import fetch
 
 logger = logging.getLogger(__name__)
 
@@ -141,25 +141,17 @@ async def clear_fsm_keep_nav(state: FSMContext) -> None:
 
 async def has_active_cycle(telegram_user_id: int) -> bool:
     """Return True if the user has an active training cycle."""
-    client = await get_client()
-    rows = (
-        await client.table("users")
-        .select("id")
-        .eq("telegram_user_id", telegram_user_id)
-        .limit(1)
-        .execute()
-    ).data
+    rows = await fetch(
+        "SELECT id FROM users WHERE telegram_user_id = $1 LIMIT 1",
+        telegram_user_id,
+    )
     if not rows:
         return False
     user_id = rows[0]["id"]
-    cycles = (
-        await client.table("training_cycles")
-        .select("id")
-        .eq("user_id", user_id)
-        .eq("status", "active")
-        .limit(1)
-        .execute()
-    ).data
+    cycles = await fetch(
+        "SELECT id FROM training_cycles WHERE user_id = $1 AND status = 'active' LIMIT 1",
+        user_id,
+    )
     return bool(cycles)
 
 
@@ -175,14 +167,10 @@ async def get_workout_section(telegram_user_id: int) -> tuple[str, InlineKeyboar
     """Возвращает (заголовок секции с баннером цикла, клавиатура). 2 запроса к БД."""
     from bot.keyboards.main import workout_submenu_keyboard, workout_submenu_keyboard_with_create
 
-    client = await get_client()
-    user_rows = (
-        await client.table("users")
-        .select("id")
-        .eq("telegram_user_id", telegram_user_id)
-        .limit(1)
-        .execute()
-    ).data
+    user_rows = await fetch(
+        "SELECT id FROM users WHERE telegram_user_id = $1 LIMIT 1",
+        telegram_user_id,
+    )
     if not user_rows:
         return (
             "🏋️ *Тренировки*\n\n_Создайте программу, чтобы видеть прогресс по циклу._",
@@ -190,18 +178,13 @@ async def get_workout_section(telegram_user_id: int) -> tuple[str, InlineKeyboar
         )
 
     user_id = user_rows[0]["id"]
-    cycle_rows = (
-        await client.table("training_cycles")
-        .select(
-            "id,title,current_week,total_weeks,current_session_index,"
-            "sessions_per_week,schedule,total_sessions_done"
-        )
-        .eq("user_id", user_id)
-        .eq("status", "active")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    ).data
+    cycle_rows = await fetch(
+        "SELECT id, title, current_week, total_weeks, current_session_index, "
+        "sessions_per_week, schedule, total_sessions_done "
+        "FROM training_cycles WHERE user_id = $1 AND status = 'active' "
+        "ORDER BY created_at DESC LIMIT 1",
+        user_id,
+    )
 
     if not cycle_rows:
         return (
@@ -232,19 +215,13 @@ async def get_cycle_banner(user_id: str) -> str | None:
     Used in show_workout_history and get_next_session_plan to prepend cycle context.
     Logs a warning (with cycle_id) if the stored schedule JSON is malformed.
     """
-    client = await get_client()
-    rows = (
-        await client.table("training_cycles")
-        .select(
-            "id,title,current_week,total_weeks,current_session_index,"
-            "sessions_per_week,schedule,total_sessions_done"
-        )
-        .eq("user_id", user_id)
-        .eq("status", "active")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    ).data
+    rows = await fetch(
+        "SELECT id, title, current_week, total_weeks, current_session_index, "
+        "sessions_per_week, schedule, total_sessions_done "
+        "FROM training_cycles WHERE user_id = $1 AND status = 'active' "
+        "ORDER BY created_at DESC LIMIT 1",
+        user_id,
+    )
 
     if not rows:
         return None

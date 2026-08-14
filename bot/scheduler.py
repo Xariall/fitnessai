@@ -10,10 +10,11 @@ from datetime import date, datetime, timezone
 logger = logging.getLogger(__name__)
 
 
-async def _get_all_users(client) -> list[dict]:
+async def _get_all_users() -> list[dict]:
+    from db.client import fetch
+
     try:
-        result = await client.table("users").select("telegram_user_id, name").execute()
-        return result.data or []
+        return await fetch("SELECT telegram_user_id, name FROM users")
     except Exception:
         logger.exception("Scheduler: failed to fetch users")
         return []
@@ -42,39 +43,28 @@ async def _send_morning_checkin(bot, users: list[dict]) -> None:
 async def _send_evening_summary(bot, users: list[dict]) -> None:
     from aiogram.enums import ParseMode
 
-    from db.client import get_client
+    from db.client import fetch, fetchrow
 
-    client = await get_client()
     today = date.today().isoformat()
 
     for user in users:
         uid = user["telegram_user_id"]
         try:
-            user_row = (
-                await client.table("users")
-                .select("id")
-                .eq("telegram_user_id", uid)
-                .single()
-                .execute()
+            user_row = await fetchrow(
+                "SELECT id FROM users WHERE telegram_user_id = $1", uid
             )
-            if not user_row.data:
+            if not user_row:
                 continue
 
-            food = (
-                await client.table("food_logs")
-                .select("calories")
-                .eq("user_id", user_row.data["id"])
-                .gte("logged_at", f"{today}T00:00:00")
-                .execute()
-            ).data or []
+            food = await fetch(
+                "SELECT calories FROM food_logs WHERE user_id = $1 AND logged_at >= $2",
+                user_row["id"], f"{today}T00:00:00",
+            )
 
-            workouts = (
-                await client.table("workout_logs")
-                .select("id")
-                .eq("user_id", user_row.data["id"])
-                .gte("completed_at", f"{today}T00:00:00")
-                .execute()
-            ).data or []
+            workouts = await fetch(
+                "SELECT id FROM workout_logs WHERE user_id = $1 AND completed_at >= $2",
+                user_row["id"], f"{today}T00:00:00",
+            )
 
             if not food:
                 msg = (
@@ -100,8 +90,6 @@ async def _send_evening_summary(bot, users: list[dict]) -> None:
 
 async def run_scheduler(bot) -> None:
     """Background loop: fires morning (06:00 UTC) and evening (17:00 UTC) check-ins."""
-    from db.client import get_client
-
     last_morning: date | None = None
     last_evening: date | None = None
 
@@ -114,16 +102,14 @@ async def run_scheduler(bot) -> None:
 
             if now.hour == 6 and now.minute < 2 and last_morning != today:
                 last_morning = today
-                client = await get_client()
-                users = await _get_all_users(client)
+                users = await _get_all_users()
                 if users:
                     logger.info("Scheduler: sending morning check-in to %d users", len(users))
                     await _send_morning_checkin(bot, users)
 
             if now.hour == 17 and now.minute < 2 and last_evening != today:
                 last_evening = today
-                client = await get_client()
-                users = await _get_all_users(client)
+                users = await _get_all_users()
                 if users:
                     logger.info("Scheduler: sending evening summary to %d users", len(users))
                     await _send_evening_summary(bot, users)

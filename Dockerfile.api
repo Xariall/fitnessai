@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Системные зависимости
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Зависимости отдельным слоем для кэша
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Исходный код
+COPY . .
+
+CMD ["sh", "-c", "uvicorn api.app:app --host 0.0.0.0 --port ${PORT:-8001}"]

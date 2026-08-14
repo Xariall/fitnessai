@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -168,40 +167,13 @@ class TestValidateInitData:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def mock_supabase():
-    """Mock Supabase client for API tests."""
-    mock_client = AsyncMock()
-
-    def _table_chain(data=None):
-        chain = MagicMock()
-        chain.select.return_value = chain
-        chain.eq.return_value = chain
-        chain.gte.return_value = chain
-        chain.order.return_value = chain
-        chain.maybe_single.return_value = chain
-        chain.limit.return_value = chain
-
-        result = MagicMock()
-        result.data = data
-        chain.execute = AsyncMock(return_value=result)
-        return chain
-
-    mock_client.table = MagicMock(side_effect=lambda name: {
-        "users": _table_chain({"id": "uuid-test", "weight_kg": 80.0, "telegram_user_id": 123456}),
-        "workout_logs": _table_chain([]),
-    }.get(name, _table_chain(None)))
-
-    return mock_client
-
-
 @pytest.fixture(autouse=True)
-def _reset_supabase_client():
-    """Reset supabase singleton between tests to avoid event loop issues."""
+def _reset_pg_pool():
+    """Reset the asyncpg pool singleton between tests to avoid event loop issues."""
     import db.client
-    db.client._client = None
+    db.client._pool = None
     yield
-    db.client._client = None
+    db.client._pool = None
 
 
 @pytest.mark.asyncio
