@@ -2,12 +2,41 @@
 
 Morning check-in: 06:00 UTC — remind to log weight + breakfast.
 Evening summary:  17:00 UTC — show daily nutrition/workout recap.
+
+Каждый чек-ин трекает своё последнее сообщение (отдельно от навигационного
+last_bot_msg_id из bot/helpers.py) и перед отправкой новой карточки удаляет
+предыдущую того же типа — иначе они копятся в чате день за днём.
 """
 import asyncio
+import contextlib
 import logging
 from datetime import date, datetime, timezone
 
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.base import BaseStorage, StorageKey
+
 logger = logging.getLogger(__name__)
+
+_MORNING_MSG_KEY = "morning_checkin_msg_id"
+_EVENING_MSG_KEY = "evening_summary_msg_id"
+
+
+def _state_for_user(bot, storage: BaseStorage, telegram_user_id: int) -> FSMContext:
+    """FSMContext для проактивной рассылки — приватный чат, chat_id == user_id."""
+    key = StorageKey(bot_id=bot.id, chat_id=telegram_user_id, user_id=telegram_user_id)
+    return FSMContext(storage=storage, key=key)
+
+
+async def _send_tracked(bot, state: FSMContext, chat_id: int, data_key: str, text: str, parse_mode) -> None:
+    """Удалить предыдущее сообщение этого чек-ина (если есть) → отправить новое → запомнить id."""
+    data = await state.get_data()
+    old_id = data.get(data_key)
+    if old_id:
+        with contextlib.suppress(Exception):
+            await bot.delete_message(chat_id, old_id)
+
+    sent = await bot.send_message(chat_id, text, parse_mode=parse_mode)
+    await state.update_data(**{data_key: sent.message_id})
 
 
 async def _get_all_users() -> list[dict]:
@@ -20,27 +49,29 @@ async def _get_all_users() -> list[dict]:
         return []
 
 
-async def _send_morning_checkin(bot, users: list[dict]) -> None:
+async def _send_morning_checkin(bot, storage: BaseStorage, users: list[dict]) -> None:
     from aiogram.enums import ParseMode
 
     for user in users:
+        uid = user["telegram_user_id"]
         try:
-            await bot.send_message(
-                user["telegram_user_id"],
+            state = _state_for_user(bot, storage, uid)
+            await _send_tracked(
+                bot, state, uid, _MORNING_MSG_KEY,
                 f"☀️ *Доброе утро, {user['name']}!*\n\n"
                 "Начни день правильно:\n"
                 "• 🥛 Стакан воды сразу после пробуждения\n"
                 "• ⚖️ Запиши свой вес (натощак)\n"
                 "• 🍳 Залогируй завтрак\n\n"
                 "_Напиши что ешь — считаю КБЖУ мгновенно!_",
-                parse_mode=ParseMode.MARKDOWN,
+                ParseMode.MARKDOWN,
             )
             await asyncio.sleep(0.05)
         except Exception:
-            logger.debug("Scheduler: could not send morning to %s", user["telegram_user_id"])
+            logger.debug("Scheduler: could not send morning to %s", uid)
 
 
-async def _send_evening_summary(bot, users: list[dict]) -> None:
+async def _send_evening_summary(bot, storage: BaseStorage, users: list[dict]) -> None:
     from aiogram.enums import ParseMode
 
     from db.client import fetch, fetchrow
@@ -82,14 +113,19 @@ async def _send_evening_summary(bot, users: list[dict]) -> None:
                     "_Напиши «итог дня» для полной сводки_"
                 )
 
-            await bot.send_message(uid, msg, parse_mode=ParseMode.MARKDOWN)
+            state = _state_for_user(bot, storage, uid)
+            await _send_tracked(bot, state, uid, _EVENING_MSG_KEY, msg, ParseMode.MARKDOWN)
             await asyncio.sleep(0.05)
         except Exception:
             logger.debug("Scheduler: could not send evening to %s", uid)
 
 
-async def run_scheduler(bot) -> None:
-    """Background loop: fires morning (06:00 UTC) and evening (17:00 UTC) check-ins."""
+async def run_scheduler(bot, storage: BaseStorage) -> None:
+    """Background loop: fires morning (06:00 UTC) and evening (17:00 UTC) check-ins.
+
+    storage — то же FSM-хранилище, что и у Dispatcher (bot/main.py), чтобы
+    проактивные чек-ины трекали свои message_id так же, как обычная навигация.
+    """
     last_morning: date | None = None
     last_evening: date | None = None
 
@@ -105,14 +141,14 @@ async def run_scheduler(bot) -> None:
                 users = await _get_all_users()
                 if users:
                     logger.info("Scheduler: sending morning check-in to %d users", len(users))
-                    await _send_morning_checkin(bot, users)
+                    await _send_morning_checkin(bot, storage, users)
 
             if now.hour == 17 and now.minute < 2 and last_evening != today:
                 last_evening = today
                 users = await _get_all_users()
                 if users:
                     logger.info("Scheduler: sending evening summary to %d users", len(users))
-                    await _send_evening_summary(bot, users)
+                    await _send_evening_summary(bot, storage, users)
 
         except Exception:
             logger.exception("Scheduler error")

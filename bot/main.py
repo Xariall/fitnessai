@@ -69,7 +69,7 @@ async def main() -> None:
     await bot.set_my_commands(_BOT_COMMANDS)
 
     logger.info("Starting bot (persistent memory: MemorySaver + pickle)...")
-    scheduler_task = asyncio.create_task(run_scheduler(bot))
+    scheduler_task = asyncio.create_task(run_scheduler(bot, dp.storage))
     try:
         await dp.start_polling(
             bot,
