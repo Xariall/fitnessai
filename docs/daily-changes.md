@@ -159,3 +159,24 @@ Local REST API плагин), поэтому лог и остальная док
   `StorageKey`.
 - Задеплоено на Railway через `railway up -s bot --ci --detach` (сервис не подключён
   к GitHub — `git push` для него ничего не делает, см. запись про деплой выше).
+
+**Позже в тот же день: добавлен README.md, сменён default branch репозитория.**
+
+- Корневого `README.md` в репозитории не было вообще — старый (Obsidian-vault,
+  Supabase-стек, вики-ссылки `[[context]]`/`[[structure]]`) был удалён коммитом
+  `34d95e9` («обновил графы obsidian») без замены, судя по `git log --all -- README.md`.
+  Написан новый: актуальный стек (Railway Postgres, Gemini-only LLM-провайдер —
+  `LLM_PROVIDER`/Ollama в `.env.example` больше не читается кодом, `llm/provider.py`
+  жёстко на `ChatGoogleGenerativeAI`), структура репозитория, установка/запуск/тесты
+  (через `.venv`, системный python не видит `asyncpg`), деплой (`railway up`, не
+  `git push`), таблица со ссылками на `docs/`.
+- По просьбе пользователя ветка `qaNew` сделана default branch репозитория на GitHub
+  (`gh repo edit Xariall/fitnessai --default-branch qaNew`) — раньше был `main`.
+  Явно уточнил с пользователем перед изменением: это чисто GitHub-указатель (какая
+  ветка открывается первой на странице репо / клонируется по умолчанию), файлы и
+  историю `main` не трогает и не трогал — `main` специально не переключали и не
+  трогали, там задеплоен фронт лендинга. Отдельно предупредил: если лендинг на
+  `main` деплоится через Vercel — Production Branch там настраивается отдельно от
+  GitHub default branch, но стоит перепроверить в самом Vercel-проекте.
+- Файлы: новый `README.md` (коммит `de8d3e5`), изменения default branch — настройка
+  GitHub, не коммит в репозитории.
