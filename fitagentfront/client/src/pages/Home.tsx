@@ -49,7 +49,7 @@ export default function Home() {
             <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight text-white">
               Твой AI тренер
               <br />
-              <span className="gradient-text">и нутрициолог</span>
+              <span className="gradient-text">и диетолог</span>
             </h1>
             <p className="text-muted text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
               Персональный план тренировок и питания прямо в Telegram.
@@ -67,7 +67,6 @@ export default function Home() {
             >
               Начать в Telegram
             </a>
-            <p className="text-muted-sm text-sm">Бесплатно · без карты</p>
           </div>
 
           {/* Features Grid */}
