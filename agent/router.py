@@ -27,8 +27,10 @@ from agent.tools.nutrition import (
     generate_nutrition_plan,
     get_daily_nutrition_summary,
     get_food_info,
+    get_nutrition_preferences,
     get_workout_nutrition_protocol,
     log_food,
+    save_nutrition_preferences,
 )
 from agent.tools.profile import get_user_profile, update_user_profile
 from agent.tools.progress import get_progress_summary, get_weekly_summary, log_progress
@@ -92,6 +94,8 @@ TOOLS_BY_DOMAIN: dict[str, list] = {
         get_workout_nutrition_protocol,
         check_nutrition_adjustment,
         calculate_hydration,
+        get_nutrition_preferences,
+        save_nutrition_preferences,
     ],
     "progress": [
         log_progress,

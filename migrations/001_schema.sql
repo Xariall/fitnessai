@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS public.users (
     activity_level   text             NOT NULL
                          CHECK (activity_level IN ('sedentary', 'light', 'moderate', 'active', 'very_active')),
     injuries         jsonb            NOT NULL DEFAULT '[]'::jsonb,
+    nutrition_preferences jsonb,
     created_at       timestamptz      NOT NULL DEFAULT now(),
     updated_at       timestamptz      NOT NULL DEFAULT now()
 );

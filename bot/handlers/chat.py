@@ -60,6 +60,8 @@ _TOOL_STATUS: dict[str, str] = {
     "get_weekly_summary": "📊 Загружаю итог недели...",
     "delete_log_entry": "🗑 Удаляю запись...",
     "generate_motivation_meme": "🎭 Создаю мем...",
+    "get_nutrition_preferences": "🥗 Проверяю настройки питания...",
+    "save_nutrition_preferences": "💾 Сохраняю настройки питания...",
 }
 
 

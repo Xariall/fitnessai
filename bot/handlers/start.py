@@ -15,6 +15,7 @@ from bot.keyboards.main import (
     start_keyboard,
 )
 from agent.constants import ACTIVITY_MULTIPLIERS as _ACTIVITY_MULTIPLIERS, GOAL_ADJUSTMENTS as _GOAL_ADJUSTMENTS
+from bot.helpers import send_and_track
 from db.client import execute
 
 logger = logging.getLogger(__name__)
@@ -93,24 +94,27 @@ class OnboardingFSM(StatesGroup):
 async def cmd_start(message: Message, state: FSMContext, is_registered: bool = False) -> None:
     await state.clear()
     if is_registered:
-        await message.answer(
-            f"С возвращением! Чем займёмся? 💪",
+        await send_and_track(
+            message,
+            "С возвращением! Чем займёмся? 💪",
+            state,
             reply_markup=main_menu_keyboard(),
         )
         return
 
-    await message.answer(
+    await send_and_track(
+        message,
         "Привет! Я FitnessAI — персональный AI-тренер в Telegram. 👋\n\n"
         "Составлю план тренировок и питания, посчитаю КБЖУ и буду отслеживать твой прогресс.\n\n"
         "Настройка займёт 2 минуты — давай начнём! 🚀",
+        state,
         reply_markup=start_keyboard(),
     )
 
 
 @router.callback_query(F.data == "onboarding:start")
 async def onboarding_start(callback: CallbackQuery, state: FSMContext) -> None:
-    await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(f"{_step_header(1)}Как тебя зовут?")
+    await send_and_track(callback, f"{_step_header(1)}Как тебя зовут?", state)
     await state.set_state(OnboardingFSM.name)
     await callback.answer()
 
@@ -118,16 +122,25 @@ async def onboarding_start(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(OnboardingFSM.name)
 async def onboarding_name(message: Message, state: FSMContext) -> None:
     await state.update_data(name=message.text)
-    await message.answer(
+    await send_and_track(
+        message,
         f"{_step_header(2)}Какая у тебя основная цель?",
+        state,
         reply_markup=goal_keyboard(),
+        delete_user_msg=True,
     )
     await state.set_state(OnboardingFSM.goal)
 
 
 @router.message(OnboardingFSM.goal)
-async def onboarding_goal_text_fallback(message: Message) -> None:
-    await message.answer("Выбери цель, нажав на одну из кнопок выше 👆")
+async def onboarding_goal_text_fallback(message: Message, state: FSMContext) -> None:
+    await send_and_track(
+        message,
+        f"{_step_header(2)}Выбери цель, нажав на одну из кнопок ниже 👇",
+        state,
+        reply_markup=goal_keyboard(),
+        delete_user_msg=True,
+    )
 
 
 @router.callback_query(OnboardingFSM.goal, F.data.startswith("goal:"))
@@ -135,9 +148,10 @@ async def onboarding_goal_callback(callback: CallbackQuery, state: FSMContext) -
     goal = callback.data.split(":")[1]
     label = GOAL_LABELS.get(goal, goal)
     await state.update_data(goal=goal)
-    await callback.message.edit_text(f"Цель: {label} ✅")
-    await callback.message.answer(
-        f"{_step_header(3)}Как бы ты описал свою текущую активность?",
+    await send_and_track(
+        callback,
+        f"Цель: {label} ✅\n\n{_step_header(3)}Как бы ты описал свою текущую активность?",
+        state,
         reply_markup=activity_keyboard(),
     )
     await state.set_state(OnboardingFSM.activity_level)
@@ -145,8 +159,14 @@ async def onboarding_goal_callback(callback: CallbackQuery, state: FSMContext) -
 
 
 @router.message(OnboardingFSM.activity_level)
-async def onboarding_activity_text_fallback(message: Message) -> None:
-    await message.answer("Выбери уровень активности, нажав на одну из кнопок выше 👆")
+async def onboarding_activity_text_fallback(message: Message, state: FSMContext) -> None:
+    await send_and_track(
+        message,
+        f"{_step_header(3)}Выбери уровень активности, нажав на одну из кнопок ниже 👇",
+        state,
+        reply_markup=activity_keyboard(),
+        delete_user_msg=True,
+    )
 
 
 @router.callback_query(OnboardingFSM.activity_level, F.data.startswith("activity:"))
@@ -154,8 +174,11 @@ async def onboarding_activity_callback(callback: CallbackQuery, state: FSMContex
     activity = callback.data.split(":")[1]
     label = ACTIVITY_LABELS.get(activity, activity)
     await state.update_data(activity_level=activity)
-    await callback.message.edit_text(f"Активность: {label} ✅")
-    await callback.message.answer(f"{_step_header(4)}Сколько тебе лет?")
+    await send_and_track(
+        callback,
+        f"Активность: {label} ✅\n\n{_step_header(4)}Сколько тебе лет?",
+        state,
+    )
     await state.set_state(OnboardingFSM.age)
     await callback.answer()
 
@@ -163,14 +186,29 @@ async def onboarding_activity_callback(callback: CallbackQuery, state: FSMContex
 @router.message(OnboardingFSM.age)
 async def onboarding_age(message: Message, state: FSMContext) -> None:
     if not message.text or not message.text.isdigit():
-        await message.answer("Пожалуйста, введи возраст числом, например: 28")
+        await send_and_track(
+            message,
+            f"{_step_header(4)}Пожалуйста, введи возраст числом, например: 28",
+            state,
+            delete_user_msg=True,
+        )
         return
     age = int(message.text)
     if not 10 <= age <= 120:
-        await message.answer("Возраст должен быть от 10 до 120 лет. Попробуй снова:")
+        await send_and_track(
+            message,
+            f"{_step_header(4)}Возраст должен быть от 10 до 120 лет. Попробуй снова:",
+            state,
+            delete_user_msg=True,
+        )
         return
     await state.update_data(age=age)
-    await message.answer(f"{_step_header(5)}Какой у тебя рост? (в см, например: 178)")
+    await send_and_track(
+        message,
+        f"{_step_header(5)}Какой у тебя рост? (в см, например: 178)",
+        state,
+        delete_user_msg=True,
+    )
     await state.set_state(OnboardingFSM.height)
 
 
@@ -179,13 +217,28 @@ async def onboarding_height(message: Message, state: FSMContext) -> None:
     try:
         height = float(message.text.replace(",", "."))
     except (ValueError, AttributeError):
-        await message.answer("Пожалуйста, введи рост числом, например: 178")
+        await send_and_track(
+            message,
+            f"{_step_header(5)}Пожалуйста, введи рост числом, например: 178",
+            state,
+            delete_user_msg=True,
+        )
         return
     if not 100 <= height <= 250:
-        await message.answer("Рост должен быть от 100 до 250 см. Попробуй снова:")
+        await send_and_track(
+            message,
+            f"{_step_header(5)}Рост должен быть от 100 до 250 см. Попробуй снова:",
+            state,
+            delete_user_msg=True,
+        )
         return
     await state.update_data(height_cm=height)
-    await message.answer(f"{_step_header(6)}Какой сейчас вес? (в кг, например: 82.5)")
+    await send_and_track(
+        message,
+        f"{_step_header(6)}Какой сейчас вес? (в кг, например: 82.5)",
+        state,
+        delete_user_msg=True,
+    )
     await state.set_state(OnboardingFSM.weight)
 
 
@@ -194,21 +247,33 @@ async def onboarding_weight(message: Message, state: FSMContext) -> None:
     try:
         weight = float(message.text.replace(",", "."))
     except (ValueError, AttributeError):
-        await message.answer("Пожалуйста, введи вес числом, например: 82.5")
+        await send_and_track(
+            message,
+            f"{_step_header(6)}Пожалуйста, введи вес числом, например: 82.5",
+            state,
+            delete_user_msg=True,
+        )
         return
     if not 30 <= weight <= 300:
-        await message.answer("Вес должен быть от 30 до 300 кг. Попробуй снова:")
+        await send_and_track(
+            message,
+            f"{_step_header(6)}Вес должен быть от 30 до 300 кг. Попробуй снова:",
+            state,
+            delete_user_msg=True,
+        )
         return
 
     await state.update_data(weight_kg=weight)
     await state.set_state(OnboardingFSM.injuries)
-    await message.answer(
+    await send_and_track(
+        message,
         f"{_step_header(7)}Есть травмы или противопоказания? 🩺\n\n"
         "Напиши что беспокоит — например: «колено, поясница».\n"
         "Буду учитывать при генерации тренировок.\n\n"
         "_Если всё в порядке — нажми кнопку ниже:_",
-        parse_mode="Markdown",
+        state,
         reply_markup=no_injuries_keyboard(),
+        delete_user_msg=True,
     )
 
 
@@ -235,9 +300,12 @@ async def _finish_onboarding(message: Message, state: FSMContext, injuries: list
         )
     except Exception:
         logger.exception("Failed to save user profile for %s", user_id)
-        await message.answer(
+        await send_and_track(
+            message,
             "Не удалось сохранить профиль — проблема с базой данных. "
-            "Попробуй ещё раз через /start."
+            "Попробуй ещё раз через /start.",
+            state,
+            delete_user_msg=True,
         )
         return
 
@@ -263,22 +331,23 @@ async def _finish_onboarding(message: Message, state: FSMContext, injuries: list
         readable = ", ".join(_tag_labels.get(i, i) for i in injuries)
         injuries_line = f"⚠️ Учту: {readable}\n\n"
 
-    await message.answer(
+    await send_and_track(
+        message,
         f"✅ Отлично, *{data['name']}*! Всё готово.\n\n"
         f"{injuries_line}"
         f"Твоя норма: *{norms['calories']} ккал/день*\n"
         f"Белки: {norms['protein']}г · Жиры: {norms['fat']}г · Углеводы: {norms['carbs']}г\n\n"
         "Хочешь сразу получить план тренировок или план питания?\n"
         "_Или просто напиши мне — я всегда здесь 💪_",
-        parse_mode="Markdown",
+        state,
         reply_markup=main_menu_keyboard(),
+        delete_user_msg=True,
     )
 
 
 @router.callback_query(OnboardingFSM.injuries, F.data == "onboarding:no_injuries")
 async def onboarding_no_injuries(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
-    await callback.message.edit_reply_markup(reply_markup=None)
     await _finish_onboarding(callback.message, state, injuries=[], user_id=callback.from_user.id)
 
 
@@ -286,7 +355,13 @@ async def onboarding_no_injuries(callback: CallbackQuery, state: FSMContext) -> 
 async def onboarding_injuries(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if not text:
-        await message.answer("Напиши что беспокоит или нажми «Нет травм ✅»")
+        await send_and_track(
+            message,
+            f"{_step_header(7)}Напиши что беспокоит или нажми «Нет травм ✅»",
+            state,
+            reply_markup=no_injuries_keyboard(),
+            delete_user_msg=True,
+        )
         return
     injuries = _parse_injuries(text)
     await _finish_onboarding(message, state, injuries=injuries, user_id=message.from_user.id)

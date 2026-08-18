@@ -39,6 +39,56 @@ async def calculate_daily_calories(telegram_user_id: int) -> dict:
 
 
 @tool
+async def get_nutrition_preferences(telegram_user_id: int) -> dict:
+    """Проверить настройки питания пользователя (что обычно есть дома, вкусы, бюджет).
+
+    Вызывать ПЕРЕД первой генерацией плана питания и перед любым обновлением
+    настроек — пустой результат {} означает, что настройки ещё не заполнены.
+    """
+    row = await fetchrow(
+        "SELECT nutrition_preferences FROM users WHERE telegram_user_id = $1", telegram_user_id
+    )
+    return (row or {}).get("nutrition_preferences") or {}
+
+
+@tool
+async def save_nutrition_preferences(
+    telegram_user_id: int,
+    usual_products: str,
+    liked_foods: str,
+    disliked_foods: str,
+    food_budget: str,
+) -> str:
+    """Сохранить настройки питания пользователя.
+
+    Вызывать после того как пользователь ответил на вопросы о продуктах,
+    вкусах и бюджете — при первой генерации плана питания или по явной
+    просьбе обновить настройки питания.
+
+    Args:
+        telegram_user_id: ID пользователя в Telegram.
+        usual_products: Какие продукты обычно есть дома / что чаще всего покупает.
+        liked_foods: Любимые блюда и продукты.
+        disliked_foods: Нелюбимые блюда, продукты, непереносимости.
+        food_budget: Бюджет на питание (сумма и период, например "60000 тг/мес").
+    """
+    prefs = {
+        "usual_products": usual_products,
+        "liked_foods": liked_foods,
+        "disliked_foods": disliked_foods,
+        "food_budget": food_budget,
+    }
+    result = await execute(
+        "UPDATE users SET nutrition_preferences = $1 WHERE telegram_user_id = $2",
+        prefs,
+        telegram_user_id,
+    )
+    if result == "UPDATE 0":
+        return "Пользователь не найден."
+    return "✅ Настройки питания сохранены."
+
+
+@tool
 async def generate_nutrition_plan(
     telegram_user_id: int,
     preferences: Optional[str] = None,
@@ -121,6 +171,17 @@ async def generate_nutrition_plan(
     if remaining_types and remaining_cal > 50:
         llm = get_llm()
         pref_text = f"Предпочтения / ограничения: {preferences}." if preferences else ""
+        nutrition_prefs = profile.get("nutrition_preferences") or {}
+        prefs_lines = []
+        if nutrition_prefs.get("usual_products"):
+            prefs_lines.append(f"- Обычно есть дома / чаще покупает: {nutrition_prefs['usual_products']}")
+        if nutrition_prefs.get("liked_foods"):
+            prefs_lines.append(f"- Любит: {nutrition_prefs['liked_foods']}")
+        if nutrition_prefs.get("disliked_foods"):
+            prefs_lines.append(f"- Не любит / исключить: {nutrition_prefs['disliked_foods']}")
+        if nutrition_prefs.get("food_budget"):
+            prefs_lines.append(f"- Бюджет на питание: {nutrition_prefs['food_budget']}")
+        prefs_block = ("\nНастройки питания пользователя:\n" + "\n".join(prefs_lines) + "\n") if prefs_lines else ""
         types_str = ", ".join(f"{_MEAL_LABELS[mt]} ({mt})" for mt in remaining_types)
         json_schema = (
             '{"meals": [{"type": "breakfast|lunch|dinner|snack", "label": "...", '
@@ -132,8 +193,17 @@ async def generate_nutrition_plan(
             f"Профиль: вес {profile.get('weight_kg')} кг, цель: {profile.get('goal')}.\n"
             f"Оставшийся бюджет: {remaining_cal} ккал | "
             f"Б {remaining_prot}г | Ж {remaining_fat}г | У {remaining_carb}г.\n"
-            f"{pref_text}\n\n"
+            f"{pref_text}"
+            f"{prefs_block}\n"
             f"ВАЖНО:\n"
+            f"- Продукты и блюда — только с рынка СНГ, реалистичные и доступные в Казахстане "
+            f"(гречка, курица, говядина, творог, кефир, картофель, рис, овсянка, яйца, овощи с местного рынка и т.п.)\n"
+            f"- НЕ предлагай экзотику вроде киноа, авокадо-тоста, чиа-пудинга, кейл-смузи, если её нет "
+            f"в 'Обычно есть дома' или явно не попросили\n"
+            f"- Если указаны 'Обычно есть дома' — собирай план преимущественно из этих продуктов\n"
+            f"- Если указан бюджет — избегай дорогих продуктов (красная рыба, орехи в больших количествах и т.п.), "
+            f"если они не входят в 'Обычно есть дома'\n"
+            f"- Учитывай 'Не любит / исключить' — никогда не предлагай эти продукты\n"
             f"- Вес блюда в граммах ГОТОВОГО продукта\n"
             f"- Реалистичные КБЖУ: овсянка варёная 100г=88 ккал, гречка варёная 100г=110 ккал, "
             f"куриная грудка 100г=165 ккал, яйцо=75 ккал, творог 5% 100г=121 ккал\n"

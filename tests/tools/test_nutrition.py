@@ -118,3 +118,160 @@ class TestDailyNutritionSummary:
         }
         assert consumed["calories"] == 0
         assert consumed["protein"] == 0.0
+
+
+class TestNutritionPreferences:
+    """get_nutrition_preferences / save_nutrition_preferences — настройки питания
+    (продукты дома, вкусы, бюджет), собираемые до первого плана питания."""
+
+    async def test_get_preferences_returns_empty_dict_when_not_set(self):
+        from agent.tools.nutrition import get_nutrition_preferences
+
+        fetchrow_mock = AsyncMock(return_value={"nutrition_preferences": None})
+        with patch("agent.tools.nutrition.fetchrow", fetchrow_mock):
+            result = await get_nutrition_preferences.ainvoke({"telegram_user_id": 123456})
+
+        assert result == {}
+
+    async def test_get_preferences_returns_empty_dict_when_user_not_found(self):
+        from agent.tools.nutrition import get_nutrition_preferences
+
+        fetchrow_mock = AsyncMock(return_value=None)
+        with patch("agent.tools.nutrition.fetchrow", fetchrow_mock):
+            result = await get_nutrition_preferences.ainvoke({"telegram_user_id": 999})
+
+        assert result == {}
+
+    async def test_get_preferences_returns_saved_values(self):
+        from agent.tools.nutrition import get_nutrition_preferences
+
+        saved = {
+            "usual_products": "гречка, курица, творог",
+            "liked_foods": "плов",
+            "disliked_foods": "рыба",
+            "food_budget": "60000 тг/мес",
+        }
+        fetchrow_mock = AsyncMock(return_value={"nutrition_preferences": saved})
+        with patch("agent.tools.nutrition.fetchrow", fetchrow_mock):
+            result = await get_nutrition_preferences.ainvoke({"telegram_user_id": 123456})
+
+        assert result == saved
+
+    async def test_save_preferences_writes_jsonb_dict(self):
+        from agent.tools.nutrition import save_nutrition_preferences
+
+        execute_mock = AsyncMock(return_value="UPDATE 1")
+        with patch("agent.tools.nutrition.execute", execute_mock):
+            result = await save_nutrition_preferences.ainvoke({
+                "telegram_user_id": 123456,
+                "usual_products": "гречка, курица",
+                "liked_foods": "плов",
+                "disliked_foods": "рыба",
+                "food_budget": "60000 тг/мес",
+            })
+
+        assert "✅" in result
+        sql, args = execute_mock.call_args.args[0], execute_mock.call_args.args[1:]
+        assert "UPDATE users SET nutrition_preferences" in sql
+        prefs_arg, telegram_id_arg = args
+        assert telegram_id_arg == 123456
+        assert prefs_arg == {
+            "usual_products": "гречка, курица",
+            "liked_foods": "плов",
+            "disliked_foods": "рыба",
+            "food_budget": "60000 тг/мес",
+        }
+
+    async def test_save_preferences_reports_user_not_found(self):
+        from agent.tools.nutrition import save_nutrition_preferences
+
+        execute_mock = AsyncMock(return_value="UPDATE 0")
+        with patch("agent.tools.nutrition.execute", execute_mock):
+            result = await save_nutrition_preferences.ainvoke({
+                "telegram_user_id": 999,
+                "usual_products": "гречка",
+                "liked_foods": "плов",
+                "disliked_foods": "",
+                "food_budget": "",
+            })
+
+        assert result == "Пользователь не найден."
+
+
+class TestGenerateNutritionPlanUsesPreferences:
+    """generate_nutrition_plan должен подмешивать сохранённые настройки питания
+    и требование рынка СНГ/Казахстан в промпт LLM."""
+
+    async def test_prompt_includes_saved_preferences_and_cis_market_rule(self):
+        from agent.tools.nutrition import generate_nutrition_plan
+
+        profile_row = {
+            "weight_kg": 80.0,
+            "height_cm": 180.0,
+            "age": 30,
+            "goal": "maintain",
+            "activity_level": "moderate",
+            "nutrition_preferences": {
+                "usual_products": "гречка, курица, творог",
+                "liked_foods": "плов",
+                "disliked_foods": "рыба",
+                "food_budget": "60000 тг/мес",
+            },
+        }
+        fetchrow_mock = AsyncMock(return_value=profile_row)
+        fetch_mock = AsyncMock(return_value=[])  # нет сегодняшних логов
+        execute_mock = AsyncMock(return_value="INSERT 0 1")
+
+        llm_response = MagicMock()
+        llm_response.content = (
+            '{"meals": [{"type": "breakfast", "label": "Завтрак", '
+            '"items": [{"name": "Гречка 200г", "calories": 220, "protein": 8, "fat": 2, "carbs": 40}], '
+            '"total_calories": 220}]}'
+        )
+        llm_mock = MagicMock()
+        llm_mock.ainvoke = AsyncMock(return_value=llm_response)
+
+        with patch("agent.tools.nutrition.fetchrow", fetchrow_mock), \
+             patch("agent.tools.nutrition.fetch", fetch_mock), \
+             patch("agent.tools.nutrition.execute", execute_mock), \
+             patch("agent.tools.nutrition._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("llm.provider.get_llm", MagicMock(return_value=llm_mock)):
+            await generate_nutrition_plan.ainvoke({"telegram_user_id": 123456})
+
+        prompt_sent = llm_mock.ainvoke.call_args.args[0]
+        assert "гречка, курица, творог" in prompt_sent
+        assert "плов" in prompt_sent
+        assert "рыба" in prompt_sent
+        assert "60000 тг/мес" in prompt_sent
+        assert "Казахстан" in prompt_sent
+
+    async def test_prompt_omits_preferences_block_when_not_set(self):
+        from agent.tools.nutrition import generate_nutrition_plan
+
+        profile_row = {
+            "weight_kg": 80.0,
+            "height_cm": 180.0,
+            "age": 30,
+            "goal": "maintain",
+            "activity_level": "moderate",
+            "nutrition_preferences": None,
+        }
+        fetchrow_mock = AsyncMock(return_value=profile_row)
+        fetch_mock = AsyncMock(return_value=[])
+        execute_mock = AsyncMock(return_value="INSERT 0 1")
+
+        llm_response = MagicMock()
+        llm_response.content = '{"meals": []}'
+        llm_mock = MagicMock()
+        llm_mock.ainvoke = AsyncMock(return_value=llm_response)
+
+        with patch("agent.tools.nutrition.fetchrow", fetchrow_mock), \
+             patch("agent.tools.nutrition.fetch", fetch_mock), \
+             patch("agent.tools.nutrition.execute", execute_mock), \
+             patch("agent.tools.nutrition._get_user_id", AsyncMock(return_value="uid-1")), \
+             patch("llm.provider.get_llm", MagicMock(return_value=llm_mock)):
+            await generate_nutrition_plan.ainvoke({"telegram_user_id": 123456})
+
+        prompt_sent = llm_mock.ainvoke.call_args.args[0]
+        assert "Настройки питания пользователя:" not in prompt_sent
+        assert "Казахстан" in prompt_sent

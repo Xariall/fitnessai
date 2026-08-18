@@ -5,7 +5,6 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from aiogram import F, Router
-from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
@@ -116,7 +115,7 @@ async def show_today_summary(message: Message, telegram_user_id: int, state: FSM
 
     except Exception:
         logger.exception("show_today_summary error for user %s", telegram_user_id)
-        await message.answer("Не удалось загрузить данные. Попробуй ещё раз.")
+        await send_and_track(message, "Не удалось загрузить данные. Попробуй ещё раз.", state)
 
 
 # ──────────────────────────────────────────────
@@ -173,7 +172,7 @@ async def show_workout_history(message: Message, telegram_user_id: int, state: F
 
     except Exception:
         logger.exception("show_workout_history error for user %s", telegram_user_id)
-        await message.answer("Не удалось загрузить историю. Попробуй ещё раз.")
+        await send_and_track(message, "Не удалось загрузить историю. Попробуй ещё раз.", state)
 
 
 # ──────────────────────────────────────────────
@@ -225,7 +224,7 @@ async def show_progress_dynamics(message: Message, telegram_user_id: int, state:
 
     except Exception:
         logger.exception("show_progress_dynamics error for user %s", telegram_user_id)
-        await message.answer("Не удалось загрузить данные. Попробуй ещё раз.")
+        await send_and_track(message, "Не удалось загрузить данные. Попробуй ещё раз.", state)
 
 
 # ──────────────────────────────────────────────
@@ -341,7 +340,7 @@ async def show_stats(message: Message, telegram_user_id: int, state: FSMContext)
 
     except Exception:
         logger.exception("show_stats error for user %s", telegram_user_id)
-        await message.answer("Не удалось загрузить статистику. Попробуй ещё раз.")
+        await send_and_track(message, "Не удалось загрузить статистику. Попробуй ещё раз.", state)
 
 
 # ──────────────────────────────────────────────
@@ -382,7 +381,9 @@ async def handle_weight_input(message: Message, state: FSMContext) -> None:
     try:
         weight = float(text)
     except ValueError:
-        await message.answer("Введи вес числом, например: `82.5`", parse_mode=ParseMode.MARKDOWN)
+        await send_and_track(
+            message, "Введи вес числом, например: `82.5`", state, delete_user_msg=True,
+        )
         return
 
     await clear_fsm_keep_nav(state)
@@ -434,7 +435,7 @@ async def handle_weight_input(message: Message, state: FSMContext) -> None:
 
     except Exception:
         logger.exception("handle_weight_input error for user %s", telegram_user_id)
-        await message.answer("Не удалось сохранить замер. Попробуй ещё раз.")
+        await send_and_track(message, "Не удалось сохранить замер. Попробуй ещё раз.", state)
 
 
 # ──────────────────────────────────────────────
@@ -476,7 +477,9 @@ async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
 
     user_text = (message.text or "").strip()
     if not user_text:
-        await message.answer("Напиши что-нибудь — или нажми кнопку меню для отмены.")
+        await send_and_track(
+            message, "Напиши что-нибудь — или нажми кнопку меню для отмены.", state, delete_user_msg=True,
+        )
         return
 
     mode = data.get("input_mode", "")
@@ -523,5 +526,7 @@ async def handle_input_mode_text(message: Message, state: FSMContext) -> None:
 
 
 @router.message(InputModeFSM.waiting_for_input)
-async def handle_input_mode_non_text(message: Message) -> None:
-    await message.answer("Напиши текстом — или нажми кнопку меню для отмены.")
+async def handle_input_mode_non_text(message: Message, state: FSMContext) -> None:
+    await send_and_track(
+        message, "Напиши текстом — или нажми кнопку меню для отмены.", state, delete_user_msg=True,
+    )

@@ -59,6 +59,14 @@ JWT-ролями `anon`/`service_role` — Railway Postgres не имеет эт
 `idx_one_active_cycle ON training_cycles(user_id) WHERE status = 'active'`
 (максимум один активный тренировочный цикл на пользователя).
 
+С 2026-08-18: `users.nutrition_preferences jsonb` (nullable, без default). Настройки
+питания пользователя — `{usual_products, liked_foods, disliked_foods, food_budget}`.
+`NULL`/`{}` означает «ещё не спрашивали» — по этому агент понимает, что перед первой
+генерацией плана питания нужно задать 3 вопроса (см. `agent/prompts/system.py`,
+раздел «Настройки питания»). Читается/пишется через tool'ы `get_nutrition_preferences`/
+`save_nutrition_preferences` в `agent/tools/nutrition.py`, апдейт всегда полный
+(перезаписывает все 4 поля разом), partial-update не предусмотрен.
+
 ## Применение схемы к новой БД
 
 ```bash
