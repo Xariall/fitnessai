@@ -5,12 +5,6 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
-import Chat from "./pages/Chat";
-import Onboarding from "./pages/Onboarding";
-import Dashboard from "./pages/Dashboard";
-import Nutrition from "./pages/Nutrition";
-import WorkoutPlan from "./pages/WorkoutPlan";
-import Progress from "./pages/Progress";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 
@@ -18,12 +12,6 @@ function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
-      <Route path={"/chat"} component={Chat} />
-      <Route path={"/onboarding"} component={Onboarding} />
-      <Route path={"/dashboard"} component={Dashboard} />
-      <Route path={"/nutrition"} component={Nutrition} />
-      <Route path={"/workout-plan"} component={WorkoutPlan} />
-      <Route path={"/progress"} component={Progress} />
       <Route path={"/privacy"} component={Privacy} />
       <Route path={"/terms"} component={Terms} />
       <Route path={"/404"} component={NotFound} />

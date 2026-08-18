@@ -1,65 +1,8 @@
-import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { toast } from "sonner";
-import { getLoginUrl } from "@/const";
-import { trpc } from "@/lib/trpc";
-import { useState, useEffect } from "react";
-import {
-  ChevronRight,
-  TrendingUp,
-  Clock,
-  Target,
-  MessageCircle,
-} from "lucide-react";
-import { useLocation } from "wouter";
+import { ChevronRight, Clock, Target, TrendingUp } from "lucide-react";
+
+const TELEGRAM_BOT_URL = "https://t.me/voidFitbot";
 
 export default function Home() {
-  const { user, isAuthenticated, logout } = useAuth();
-  const [, navigate] = useLocation();
-
-  const profileQuery = trpc.profile.get.useQuery(undefined, {
-    enabled: isAuthenticated,
-    retry: false,
-  });
-
-  // Redirect new users to onboarding
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    if (profileQuery.isLoading || profileQuery.data === undefined) return;
-    if (!profileQuery.data?.onboarding_completed) {
-      navigate("/onboarding");
-    } else {
-      navigate("/dashboard");
-    }
-  }, [isAuthenticated, profileQuery.isLoading, profileQuery.data, navigate]);
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-
-  const waitlistSignup = trpc.waitlist.signup.useMutation({
-    onSuccess: result => {
-      if (result.isNew) {
-        toast.success("Спасибо! Вы добавлены в лист ожидания.");
-      } else {
-        toast.info("Вы уже в листе ожидания.");
-      }
-      setEmail("");
-      setName("");
-    },
-    onError: () => {
-      toast.error("Ошибка при добавлении в лист ожидания. Попробуйте еще раз.");
-    },
-  });
-
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) {
-      toast.error("Пожалуйста, введите email");
-      return;
-    }
-    await waitlistSignup.mutateAsync({ email, name: name || undefined });
-  };
-
   return (
     <div className="min-h-screen bg-gradient-dark relative overflow-hidden">
       {/* Animated background orbs */}
@@ -89,36 +32,14 @@ export default function Home() {
             </div>
             <span className="text-xl font-bold text-white">FitAgent</span>
           </div>
-          <div className="flex items-center gap-4">
-            {isAuthenticated && user ? (
-              <>
-                <button
-                  onClick={() => navigate("/chat")}
-                  className="flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors"
-                >
-                  <MessageCircle size={18} />
-                  Chat
-                </button>
-                <span className="text-sm text-white/70">
-                  {user.name || user.email}
-                </span>
-                <Button
-                  onClick={() => logout()}
-                  variant="ghost"
-                  className="text-white/70 hover:text-white"
-                >
-                  Выход
-                </Button>
-              </>
-            ) : (
-              <a
-                href={getLoginUrl()}
-                className="text-sm font-medium text-white/70 hover:text-white transition-colors flex items-center gap-1"
-              >
-                Войти <ChevronRight size={16} />
-              </a>
-            )}
-          </div>
+          <a
+            href={TELEGRAM_BOT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-white/70 hover:text-white transition-colors flex items-center gap-1"
+          >
+            Открыть бота <ChevronRight size={16} />
+          </a>
         </header>
 
         {/* Main Content */}
@@ -131,31 +52,22 @@ export default function Home() {
               <span className="gradient-text">и нутрициолог</span>
             </h1>
             <p className="text-muted text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
-              Персональный план тренировок и питания. Адаптируется под тебя
-              каждую неделю.
+              Персональный план тренировок и питания прямо в Telegram.
+              Адаптируется под тебя каждую неделю.
             </p>
           </div>
 
           {/* Primary CTA */}
           <div className="flex flex-col items-center gap-4 mb-20 md:mb-32 animate-slide-in-up delay-200">
-            {isAuthenticated ? (
-              <button
-                onClick={() => navigate("/chat")}
-                className="btn-primary flex items-center gap-2"
-              >
-                <MessageCircle size={18} />
-                Перейти в чат
-              </button>
-            ) : (
-              <>
-                <a href={getLoginUrl()} className="btn-primary">
-                  Начать бесплатно
-                </a>
-                <p className="text-muted-sm text-sm">
-                  Вход через Google · без карты
-                </p>
-              </>
-            )}
+            <a
+              href={TELEGRAM_BOT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary"
+            >
+              Начать в Telegram
+            </a>
+            <p className="text-muted-sm text-sm">Бесплатно · без карты</p>
           </div>
 
           {/* Features Grid */}
@@ -221,10 +133,10 @@ export default function Home() {
               <div className="flex flex-col items-center text-center w-full md:w-1/3">
                 <div className="step-circle mb-6">1</div>
                 <h4 className="font-bold text-lg mb-3 text-white">
-                  Расскажи о себе
+                  Открой бота
                 </h4>
                 <p className="text-muted-sm text-sm">
-                  Цель, параметры, условия
+                  Расскажи цель, параметры, условия
                 </p>
               </div>
 
@@ -255,58 +167,31 @@ export default function Home() {
                 Готов начать?
               </h2>
             </div>
-
-            {/* Email Signup Form or Chat Button */}
-            {isAuthenticated ? (
-              <button
-                onClick={() => navigate("/chat")}
-                className="btn-primary flex items-center gap-2"
-              >
-                <MessageCircle size={18} />
-                Перейти в чат
-              </button>
-            ) : (
-              <form
-                onSubmit={handleSignup}
-                className="w-full max-w-md flex flex-col gap-4"
-              >
-                <div className="flex flex-col gap-2">
-                  <Input
-                    type="email"
-                    placeholder="Твой email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    className="bg-white/10 border-white/20 text-white placeholder:text-white/40 py-3 px-4 rounded-xl"
-                    disabled={waitlistSignup.isPending}
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Input
-                    type="text"
-                    placeholder="Имя (опционально)"
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    className="bg-white/10 border-white/20 text-white placeholder:text-white/40 py-3 px-4 rounded-xl"
-                    disabled={waitlistSignup.isPending}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={waitlistSignup.isPending}
-                  className="btn-primary w-full flex items-center justify-center gap-2"
-                >
-                  {waitlistSignup.isPending
-                    ? "Загрузка..."
-                    : "Войти через Google"}{" "}
-                  <ChevronRight size={18} />
-                </button>
-              </form>
-            )}
+            <a
+              href={TELEGRAM_BOT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary flex items-center gap-2"
+            >
+              Открыть {TELEGRAM_BOT_URL.replace("https://t.me/", "@")}
+              <ChevronRight size={18} />
+            </a>
           </div>
         </main>
 
         {/* Footer */}
-        <footer className="text-center text-muted-sm text-xs py-8 border-t border-white/5">
+        <footer className="text-center text-muted-sm text-xs py-8 border-t border-white/5 flex flex-col items-center gap-2">
+          <div className="flex gap-4">
+            <a
+              href="/privacy"
+              className="hover:text-white/70 transition-colors"
+            >
+              Конфиденциальность
+            </a>
+            <a href="/terms" className="hover:text-white/70 transition-colors">
+              Условия использования
+            </a>
+          </div>
           &copy; 2026 FitAgent. Все права защищены.
         </footer>
       </div>
